@@ -1,0 +1,23 @@
+{
+  "name": "@packages/backend",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "convex dev",
+    "setup": "convex dev --until-success",
+    "setup:mock-auth": "node scripts/setup-mock-auth.mjs",
+    "typecheck": "tsc --noEmit -p convex"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ai": "^5.0.193",
+    "convex": "^1.35.1",
+    "jose": "^6.2.3",
+    "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "6.0.3"
+  }
+}

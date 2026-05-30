@@ -1,0 +1,372 @@
+tokens:
+  test_token_admin:
+    login: admin
+    scopes:
+      - repo
+      - user
+      - admin:org
+      - admin:repo_hook
+  test_token_user1:
+    login: octocat
+    scopes:
+      - repo
+      - user
+vercel:
+  users:
+    - username: developer
+      name: Developer
+      email: dev@agent-emulate.dev
+  teams:
+    - slug: my-team
+      name: My Team
+  projects:
+    - name: my-app
+      team: my-team
+      framework: nextjs
+  integrations:
+    - client_id: oac_example_client_id
+      client_secret: example_client_secret
+      name: My Vercel App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/vercel
+github:
+  users:
+    - login: octocat
+      name: The Octocat
+      email: octocat@github.com
+      bio: I am the Octocat
+      company: GitHub
+      location: San Francisco
+  orgs:
+    - login: my-org
+      name: My Organization
+      description: A test organization
+  repos:
+    - owner: octocat
+      name: hello-world
+      description: My first repository
+      language: JavaScript
+      topics:
+        - hello
+        - world
+      auto_init: true
+    - owner: my-org
+      name: org-repo
+      description: An organization repository
+      language: TypeScript
+      auto_init: true
+  oauth_apps:
+    - client_id: Iv1.example_client_id
+      client_secret: example_client_secret
+      name: My App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/github
+google:
+  users:
+    - email: testuser@agent-emulate.dev
+      name: Test User
+      picture: https://lh3.googleusercontent.com/a/default-user
+      email_verified: true
+  oauth_clients:
+    - client_id: example-client-id.apps.googleusercontent.com
+      client_secret: GOCSPX-example_secret
+      name: Code App (Google)
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/google
+  labels:
+    - id: Label_ops
+      user_email: testuser@agent-emulate.dev
+      name: Ops/Review
+      color_background: "#DDEEFF"
+      color_text: "#111111"
+  messages:
+    - id: msg_welcome
+      user_email: testuser@agent-emulate.dev
+      from: welcome@agent-emulate.dev
+      to: testuser@agent-emulate.dev
+      subject: Welcome to the Gmail emulator
+      body_text: You can now test Gmail, Calendar, and Drive flows locally.
+      label_ids:
+        - INBOX
+        - UNREAD
+        - CATEGORY_UPDATES
+      date: 2025-01-04T10:00:00.000Z
+  calendars:
+    - id: primary
+      user_email: testuser@agent-emulate.dev
+      summary: testuser@agent-emulate.dev
+      primary: true
+      selected: true
+      time_zone: UTC
+  calendar_events:
+    - id: evt_kickoff
+      user_email: testuser@agent-emulate.dev
+      calendar_id: primary
+      summary: Project Kickoff
+      start_date_time: 2025-01-10T09:00:00.000Z
+      end_date_time: 2025-01-10T09:30:00.000Z
+  drive_items:
+    - id: drv_docs
+      user_email: testuser@agent-emulate.dev
+      name: Docs
+      mime_type: application/vnd.google-apps.folder
+      parent_ids:
+        - root
+slack:
+  team:
+    name: My Workspace
+    domain: my-workspace
+  users:
+    - name: developer
+      real_name: Developer
+      email: dev@agent-emulate.dev
+  channels:
+    - name: general
+      topic: General discussion
+    - name: random
+      topic: Random stuff
+  bots:
+    - name: my-bot
+  oauth_apps:
+    - client_id: "12345.67890"
+      client_secret: example_client_secret
+      name: My Slack App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/slack
+apple:
+  users:
+    - email: testuser@agent-emulate.dev
+      name: Test User
+  oauth_clients:
+    - client_id: com.example.app
+      team_id: TEAM001
+      name: My Apple App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/apple
+microsoft:
+  users:
+    - email: testuser@agent-emulate.dev
+      name: Test User
+  oauth_clients:
+    - client_id: example-client-id
+      client_secret: example-client-secret
+      name: My Microsoft App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/microsoft-entra-id
+okta:
+  users:
+    - login: testuser@agent-emulate.dev
+      email: testuser@agent-emulate.dev
+      first_name: Test
+      last_name: User
+  groups:
+    - name: Everyone
+      description: All users
+      type: BUILT_IN
+      okta_id: 00g_everyone
+  authorization_servers:
+    - id: default
+      name: default
+      audiences:
+        - api://default
+  oauth_clients:
+    - client_id: okta-test-client
+      client_secret: okta-test-secret
+      name: Sample OIDC Client
+      redirect_uris:
+        - http://localhost:3000/callback
+      auth_server_id: default
+aws:
+  region: us-east-1
+  s3:
+    buckets:
+      - name: my-app-bucket
+      - name: my-app-uploads
+  sqs:
+    queues:
+      - name: my-app-events
+      - name: my-app-dlq
+  iam:
+    users:
+      - user_name: developer
+        create_access_key: true
+    roles:
+      - role_name: lambda-execution-role
+        description: Role for Lambda function execution
+resend:
+  domains:
+    - name: agent-emulate.dev
+      region: us-east-1
+  contacts:
+    - email: test@agent-emulate.dev
+      first_name: Test
+      last_name: User
+stripe:
+  customers:
+    - email: test@agent-emulate.dev
+      name: Test Customer
+  products:
+    - name: Pro Plan
+      description: Monthly pro subscription
+  prices:
+    - product_name: Pro Plan
+      currency: usd
+      unit_amount: 2000
+mongoatlas:
+  projects:
+    - name: Project0
+  clusters:
+    - name: Cluster0
+      project: Project0
+  database_users:
+    - username: admin
+      project: Project0
+  databases:
+    - cluster: Cluster0
+      name: test
+      collections:
+        - items
+clerk:
+  users:
+    - first_name: Test
+      last_name: User
+      email_addresses:
+        - test@agent-emulate.dev
+      password: clerk_test_password
+  organizations:
+    - name: My Company
+      slug: my-company
+      members:
+        - email: test@agent-emulate.dev
+          role: admin
+  oauth_applications:
+    - client_id: clerk_emulate_client
+      client_secret: clerk_emulate_secret
+      name: Emulate App
+      redirect_uris:
+        - http://localhost:3000/api/auth/callback/clerk
+workos:
+  users:
+    - id: user_dev
+      email: test@agent-emulate.dev
+      first_name: Test
+      last_name: User
+      password: TestPassword123!
+  organizations:
+    - id: org_dev
+      name: My Company
+      slug: my-company
+  memberships:
+    - user_email: test@agent-emulate.dev
+      organization_slug: my-company
+      role: owner
+  oauth_clients:
+    - client_id: client_emulate_01
+      client_secret: sk_emulate_secret
+      name: Emulate App
+      redirect_uris:
+        - http://localhost:3000/callback
+        - chat://callback
+        - chat:///callback
+nango:
+  connections:
+    - id: xero-demo
+      provider: xero
+      provider_config_key: xero
+      metadata:
+        activeTenantId: demo-tenant-xero-001
+      records:
+        Invoice:
+          - id: INV-001
+            InvoiceNumber: INV-001
+            Total: 1100
+            AmountDue: 1100
+            Status: AUTHORISED
+            DateString: 2024-01-15
+            DueDateString: 2024-02-15
+            Contact:
+              ContactID: CONTACT-001
+              Name: Demo Customer
+        Contact:
+          - id: CONTACT-001
+            Name: Demo Customer
+            EmailAddress: customer@agent-emulate.dev
+    - id: quickbooks-demo
+      provider: quickbooks
+      provider_config_key: quickbooks-sandbox
+      connection_config:
+        realmId: sandbox-realm-001
+      records:
+        Invoice:
+          - Id: "1"
+            DocNumber: "1001"
+            TotalAmt: 550
+            Balance: 550
+            TxnDate: 2024-01-10
+            DueDate: 2024-02-10
+            CustomerRef:
+              value: "1"
+              name: Test Customer
+        Customer:
+          - Id: "1"
+            DisplayName: Test Customer
+            PrimaryEmailAddr:
+              Address: customer@agent-emulate.dev
+simpro:
+  customers:
+    - type: Company
+      company_name: Demo Building Services
+      email: accounts@agent-emulate.dev
+      mail_suburb: Melbourne
+      mail_state: VIC
+  staff:
+    - given_name: Demo
+      family_name: Tech
+      email: tech@agent-emulate.dev
+      role_name: Technician
+  jobs:
+    - order_no: J-2025-001
+      description: Annual Fire Inspection
+      customer_name: Demo Building Services
+      stage: Progress
+      total_ex_tax: 500
+      total_inc_tax: 550
+  cost_centers:
+    - name: General
+    - name: Fire Safety
+  tax_codes:
+    - name: GST
+      rate: 10
+      description: Goods and Services Tax
+    - name: GST Free
+      rate: 0
+      description: GST exempt
+  labor_rates:
+    - name: Standard
+      rate: 95
+    - name: After Hours
+      rate: 142.5
+uptick:
+  clients:
+    - name: Demo Property Group
+      contact_email: admin@agent-emulate.dev
+      contact_name: Demo Admin
+  properties:
+    - name: Demo Building A
+      client_name: Demo Property Group
+      address_city: Melbourne
+      address_state: VIC
+  assets:
+    - name: Fire Hose Reel 01
+      property_name: Demo Building A
+      client_name: Demo Property Group
+      asset_type_name: Fire Hose Reel
+  asset_types:
+    - name: Fire Hose Reel
+    - name: Fire Extinguisher
+    - name: Fire Panel
+  users:
+    - username: tech1
+      email: tech@agent-emulate.dev
+      first_name: Demo
+      last_name: Tech

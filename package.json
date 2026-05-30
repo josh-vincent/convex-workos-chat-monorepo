@@ -1,0 +1,34 @@
+{
+  "name": "convex-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "setup:mock-auth": "pnpm --filter @packages/backend run setup:mock-auth",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "agent-emulate": "0.3.0",
+    "expo-mcp": "0.2.4",
+    "fallow": "2.84.0",
+    "msw": "^2.7.0",
+    "prettier": "3.8.3",
+    "turbo": "2.9.6"
+  },
+  "engines": {
+    "node": ">=20.20.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "pnpm": {
+    "overrides": {
+      "@expo/metro-runtime": "56.0.13"
+    }
+  },
+  "packageManager": "pnpm@10.33.0"
+}
