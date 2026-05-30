@@ -89,7 +89,7 @@ export function Sidebar({
       <Pressable
         onPress={onToggle}
         aria-hidden={!isOpen}
-        className={`fixed inset-0 z-40 bg-black/30 md:hidden ${
+        className={`fixed inset-0 z-40 bg-[#0b0d10]/30 md:hidden ${
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         // @ts-expect-error: Web-only CSS transition property

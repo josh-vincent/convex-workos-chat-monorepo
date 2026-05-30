@@ -356,7 +356,7 @@ function DrawerDim({
 
   return (
     <Animated.View
-      className={"pointer-events-none bg-black absolute inset-0"}
+      className={"pointer-events-none bg-[#0b0d10] absolute inset-0"}
       style={[{ transformOrigin: "left top" }, animatedStyle]}
     />
   );

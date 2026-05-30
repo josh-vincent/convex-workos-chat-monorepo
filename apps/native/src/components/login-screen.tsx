@@ -46,39 +46,52 @@ export function LoginScreen() {
           Sign in to start chatting.
         </Text>
 
-        <Pressable
-          onPress={onWorkOS}
-          disabled={busy !== null}
-          className="mt-8 h-12 flex-row items-center justify-center rounded-2xl bg-foreground active:opacity-80"
-        >
-          {busy === "workos" ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text className="text-base font-semibold text-background">
-              {workosEnabled
-                ? "Continue with WorkOS"
-                : "WorkOS (not configured)"}
-            </Text>
-          )}
-        </Pressable>
+        {/* WorkOS only when configured — otherwise guest is the primary action */}
+        {workosEnabled && (
+          <Pressable
+            onPress={onWorkOS}
+            disabled={busy !== null}
+            className="mt-8 h-12 flex-row items-center justify-center rounded-2xl bg-foreground active:opacity-80"
+          >
+            {busy === "workos" ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text className="text-base font-semibold text-background">
+                Continue with WorkOS
+              </Text>
+            )}
+          </Pressable>
+        )}
 
         <Pressable
           onPress={onGuest}
           disabled={busy !== null}
-          className="mt-3 h-12 flex-row items-center justify-center rounded-2xl border border-border bg-card active:bg-muted"
+          className={
+            workosEnabled
+              ? "mt-3 h-12 flex-row items-center justify-center rounded-2xl border border-border bg-card active:bg-muted"
+              : "mt-8 h-12 flex-row items-center justify-center rounded-2xl bg-foreground active:opacity-80"
+          }
         >
           {busy === "guest" ? (
-            <ActivityIndicator />
+            <ActivityIndicator color={workosEnabled ? undefined : "white"} />
           ) : (
-            <Text className="text-base font-semibold text-foreground">
+            <Text
+              className={
+                workosEnabled
+                  ? "text-base font-semibold text-foreground"
+                  : "text-base font-semibold text-background"
+              }
+            >
               Continue as guest
             </Text>
           )}
         </Pressable>
 
-        <Text className="mt-6 text-center text-xs text-muted-foreground">
-          Guest mode needs `pnpm setup:mock-auth`.
-        </Text>
+        {__DEV__ && !workosEnabled && (
+          <Text className="mt-6 text-center text-xs text-muted-foreground">
+            Guest mode needs `pnpm setup:mock-auth`.
+          </Text>
+        )}
       </View>
     </View>
   );

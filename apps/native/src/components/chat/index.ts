@@ -27,5 +27,8 @@ export { StreamingMessage } from "./streaming-message";
 export { createStreamingStore } from "./streaming-store";
 export type { StreamingStore } from "./streaming-store";
 
+// Tool calls
+export { ToolCall } from "./tool-call";
+
 // Utilities
-export type { ChatMessage } from "./types";
+export type { ChatMessage, ChatToolPart } from "./types";

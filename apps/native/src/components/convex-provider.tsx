@@ -1,6 +1,5 @@
 import { type ReactNode } from "react";
-import { ConvexReactClient } from "convex/react";
-import { ConvexProviderWithAuth } from "convex/react";
+import { ConvexReactClient , ConvexProviderWithAuth } from "convex/react";
 import {
   WorkOSAuthProvider,
   useAuthForConvex,

@@ -31,7 +31,7 @@ const IS_GLASS = isLiquidGlassAvailable();
 
 const AnimatedLegendList = Animated.createAnimatedComponent(LegendList);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Reanimated animated styles are opaque worklet objects
+ 
 type AnimatedStyle = any;
 
 type ConversationContextValue = {

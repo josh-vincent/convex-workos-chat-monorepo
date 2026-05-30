@@ -8,6 +8,9 @@ import {
 } from "react-native";
 import type { StyleMap } from "./types";
 
+// Resolve link and image references
+import type { Definition, Root, RootContent } from "mdast";
+
 const defaultStyles: StyleMap = {
   root: {},
   heading1: {
@@ -249,9 +252,6 @@ export function getKeyFromMarkdown(): Extension {
     ],
   };
 }
-
-// Resolve link and image references
-import type { Definition, Root, RootContent } from "mdast";
 
 function normalizeIdentifier(id: string): string {
   return id.trim().toLowerCase();

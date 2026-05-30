@@ -1,7 +1,6 @@
 import {
   ChatProvider,
   Conversation,
-  ConversationEmptyState,
   ConversationScrollButton,
   Message,
   MessageResponse,
@@ -11,12 +10,16 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   StreamingMessage,
+  ToolCall,
   createStreamingStore,
+  useChatContext,
   type ChatMessage,
+  type ChatToolPart,
 } from "@/components/chat";
 import { Icon } from "@/components/icon";
 import { MainHeader } from "@/components/main-header";
 import { useAuth } from "@/auth/WorkOSAuthProvider";
+import { Pressable, Text, View } from "react-native";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { fetch as expoFetch } from "expo/fetch";
@@ -63,12 +66,39 @@ async function mockStreamResponse(
 
 /** Extract text content from a UIMessage's parts array. */
 function getTextFromParts(
-  parts: Array<{ type: string; text?: string }>,
+  parts: { type: string; text?: string }[],
 ): string {
   return parts
     .filter((p) => p.type === "text" && p.text)
     .map((p) => p.text)
     .join("");
+}
+
+type RawPart = {
+  type: string;
+  toolName?: string;
+  toolCallId?: string;
+  state?: string;
+  input?: unknown;
+  output?: unknown;
+  errorText?: string;
+};
+
+/** Extract tool-call parts (waiting / received / error) from a UIMessage. */
+function getToolsFromParts(parts: RawPart[]): ChatToolPart[] {
+  return parts
+    .filter((p) => p.type === "dynamic-tool" || p.type.startsWith("tool-"))
+    .map((p, i) => ({
+      id: p.toolCallId ?? `tool-${i}`,
+      name:
+        p.type === "dynamic-tool"
+          ? (p.toolName ?? "tool")
+          : p.type.replace(/^tool-/, ""),
+      state: p.state ?? "",
+      input: p.input,
+      output: p.output,
+      errorText: p.errorText,
+    }));
 }
 
 function useAIChat() {
@@ -115,7 +145,8 @@ function useAIChat() {
         m.role === "assistant" &&
         m === uiMessages[uiMessages.length - 1]
           ? "" // Signal streaming — content comes from store
-          : getTextFromParts(m.parts as Array<{ type: string; text?: string }>),
+          : getTextFromParts(m.parts as { type: string; text?: string }[]),
+      tools: getToolsFromParts(m.parts as RawPart[]),
     }));
   }, [uiMessages, isStreaming]);
 
@@ -131,7 +162,7 @@ function useAIChat() {
     const lastMessage = uiMessages[uiMessages.length - 1];
     if (lastMessage?.role === "assistant") {
       const text = getTextFromParts(
-        lastMessage.parts as Array<{ type: string; text?: string }>,
+        lastMessage.parts as { type: string; text?: string }[],
       );
       if (text !== prevStreamingTextRef.current) {
         prevStreamingTextRef.current = text;
@@ -242,9 +273,41 @@ function useMockChat() {
   };
 }
 
+const SUGGESTED_PROMPTS = [
+  "What can you do?",
+  "Explain React Server Components simply",
+  "Write a haiku about the ocean",
+];
+
+function ChatEmptyState() {
+  const { setInput } = useChatContext();
+  return (
+    <View className="flex-1 items-center justify-center px-8">
+      <Text className="text-2xl font-semibold text-foreground">Chat</Text>
+      <Text className="mt-2 text-center text-muted-foreground">
+        Ask anything, or try one of these:
+      </Text>
+      <View className="mt-5 w-full gap-2">
+        {SUGGESTED_PROMPTS.map((p) => (
+          <Pressable
+            key={p}
+            onPress={() => setInput(p)}
+            className="rounded-2xl border border-border bg-card px-4 py-3 active:bg-muted"
+          >
+            <Text className="text-foreground">{p}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function ChatScreen() {
-  const chat = USE_MOCK ? useMockChat() : useAIChat();
-  const { messages, isGenerating, streamingStore } = chat;
+  // Call both hooks unconditionally (rules-of-hooks); select by the build-time flag.
+  const aiChat = useAIChat();
+  const mockChat = useMockChat();
+  const chat = USE_MOCK ? mockChat : aiChat;
+  const { isGenerating, streamingStore } = chat;
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -255,11 +318,14 @@ export default function ChatScreen() {
       const isStreaming = isGenerating && item.content === "";
       return (
         <Message from="assistant">
+          {item.tools?.map((t) => (
+            <ToolCall key={t.id} tool={t} />
+          ))}
           {isStreaming ? (
             <StreamingMessage store={streamingStore} />
-          ) : (
+          ) : item.content ? (
             <MessageResponse>{item.content}</MessageResponse>
-          )}
+          ) : null}
         </Message>
       );
     },
@@ -271,12 +337,7 @@ export default function ChatScreen() {
       <ChatProvider value={chat}>
         <Conversation
           renderMessage={renderMessage}
-          emptyState={
-            <ConversationEmptyState
-              title="Chat"
-              description="Send a message to get started"
-            />
-          }
+          emptyState={<ChatEmptyState />}
         >
           <ConversationScrollButton />
           <PromptInput>
