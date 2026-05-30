@@ -31,8 +31,8 @@ tables in `schema.ts` to persist threads.
 Start a new project from this base:
 
 - **GitHub:** click **“Use this template”** → create your repo, then clone it, **or**
-- `npx degit josh-vincent/convex-playground my-app` (no git history), **or**
-- `npx create-convex@latest -t josh-vincent/convex-playground`
+- `npx degit josh-vincent/convex-workos-chat-monorepo my-app` (no git history), **or**
+- `npx create-convex@latest -t josh-vincent/convex-workos-chat-monorepo`
 
 Then personalize the app identity (renames name/slug/scheme, iOS bundle id,
 Android package, and titles — leaves the `/chat` API and `useChat` untouched):

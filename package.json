@@ -1,5 +1,5 @@
 {
-  "name": "convex-monorepo",
+  "name": "convex-workos-chat-monorepo",
   "private": true,
   "scripts": {
     "dev": "turbo run dev",

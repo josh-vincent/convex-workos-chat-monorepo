@@ -73,7 +73,7 @@ async function main() {
   replace("apps/web/src/app/sign-in/page.tsx", "Log in to Chat", `Log in to ${displayName}`);
 
   // Monorepo name
-  replace("package.json", '"name": "convex-monorepo"', `"name": "${scheme}"`);
+  replace("package.json", '"name": "convex-workos-chat-monorepo"', `"name": "${scheme}"`);
 
   console.log(`\n✅ Done. Next steps:
   pnpm install
