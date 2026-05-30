@@ -26,6 +26,24 @@ Both apps share the same Convex `/chat` endpoint and the same WorkOS + guest aut
 model. Chat is stateless (messages live client-side via `useChat`); add Convex
 tables in `schema.ts` to persist threads.
 
+## Using this template
+
+Start a new project from this base:
+
+- **GitHub:** click **“Use this template”** → create your repo, then clone it, **or**
+- `npx degit josh-vincent/convex-playground my-app` (no git history), **or**
+- `npx create-convex@latest -t josh-vincent/convex-playground`
+
+Then personalize the app identity (renames name/slug/scheme, iOS bundle id,
+Android package, and titles — leaves the `/chat` API and `useChat` untouched):
+
+```sh
+pnpm install
+pnpm init:app          # interactive, or: pnpm init:app -- "Acme Chat" acmechat com.acme.chat
+```
+
+…then follow **Quick start** below (Convex + guest auth → run).
+
 ## Quick start
 
 ### 1. Install

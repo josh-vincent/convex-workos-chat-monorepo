@@ -6,6 +6,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules",
+    "init:app": "node scripts/init-app.mjs",
     "setup:mock-auth": "pnpm --filter @packages/backend run setup:mock-auth",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .gitignore"
   },
