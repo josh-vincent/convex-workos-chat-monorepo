@@ -88,6 +88,72 @@ export const upsert = mutation({
 });
 
 // ---------------------------------------------------------------------------
+// seedSampleRegisters — idempotent mutation for Tier-1 register coverage
+// ---------------------------------------------------------------------------
+
+/**
+ * Inserts one SDS entry and one induction entry for the given anchor.
+ *
+ * Idempotent: a second call with the same (orgId, anchorId) returns the same
+ * document ids without creating duplicate rows.
+ *
+ * Returns { sdsId, inductionId }.
+ */
+export const seedSampleRegisters = mutation({
+  args: {
+    orgId: v.id("organizations"),
+    anchorId: v.string(),
+  },
+  handler: async (ctx, { orgId, anchorId }) => {
+    // Check for existing SDS entry.
+    const existingSds = await ctx.db
+      .query("registerEntries")
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("registerType"), "sds"),
+          q.eq(q.field("anchorId"), anchorId),
+        ),
+      )
+      .first();
+
+    // Check for existing induction entry.
+    const existingInduction = await ctx.db
+      .query("registerEntries")
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("registerType"), "induction"),
+          q.eq(q.field("anchorId"), anchorId),
+        ),
+      )
+      .first();
+
+    const sdsId =
+      existingSds?._id ??
+      (await ctx.db.insert("registerEntries", {
+        orgId,
+        registerType: "sds",
+        anchorType: "site",
+        anchorId,
+        label: "Sample SDS Entry",
+      }));
+
+    const inductionId =
+      existingInduction?._id ??
+      (await ctx.db.insert("registerEntries", {
+        orgId,
+        registerType: "induction",
+        anchorType: "site",
+        anchorId,
+        label: "Sample Induction Entry",
+      }));
+
+    return { sdsId, inductionId };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // list
 // ---------------------------------------------------------------------------
 

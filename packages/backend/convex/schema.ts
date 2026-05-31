@@ -309,6 +309,16 @@ export default defineSchema({
     assetId: v.optional(v.id("assets")),
     inspectionId: v.optional(v.id("inspections")),
     mediaIds: v.optional(v.array(v.id("media"))),
+    // Notifiable incident fields (spec §4 Tier 1, §6, §10, DoD #4)
+    incidentType: v.optional(v.union(
+      v.literal("injury"),
+      v.literal("near_miss"),
+      v.literal("dangerous_occurrence"),
+      v.literal("illness"),
+    )),
+    notifiable: v.optional(v.boolean()),
+    occurredAt: v.optional(v.number()),
+    notifyDeadlineAt: v.optional(v.number()),
   })
     .index("by_org", ["orgId"])
     .index("by_site", ["siteId"])
@@ -677,6 +687,7 @@ export default defineSchema({
       v.literal("expired"),
       v.literal("overdue"),
       v.literal("review_due"),
+      v.literal("notifiable_incident"),
     ),
     severity: v.union(
       v.literal("low"),
