@@ -18,46 +18,103 @@ type Props = {
   onChange: (value: unknown) => void;
 };
 
-function Chip({
+type Tone = "pass" | "fail" | "neutral";
+
+/** Field-instrument segmented control — full-width cells, big targets, one bar. */
+function Segmented({
+  cells,
+  value,
+  onChange,
+}: {
+  cells: { value: string; label: string; tone: Tone }[];
+  value: unknown;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <View className="flex-row overflow-hidden rounded-xl border-2 border-border bg-card">
+      {cells.map((c, i) => {
+        const selected = value === c.value;
+        const fill = !selected
+          ? "active:bg-muted"
+          : c.tone === "pass"
+            ? "bg-pass"
+            : c.tone === "fail"
+              ? "bg-fail"
+              : "bg-foreground";
+        const labelColor = !selected
+          ? "text-muted-foreground"
+          : c.tone === "neutral"
+            ? "text-background"
+            : "text-on-fill";
+        return (
+          <Pressable
+            key={c.value}
+            onPress={() => onChange(c.value)}
+            className={`flex-1 items-center justify-center py-4 ${
+              i > 0 ? "border-l-2 border-border" : ""
+            } ${fill}`}
+          >
+            <Text
+              className={`font-heading text-[16px] uppercase tracking-[1px] ${labelColor}`}
+            >
+              {c.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Selectable option pill (multiple choice / list). Flag = "risk" option. */
+function OptionPill({
   label,
+  flag,
   selected,
-  tone,
   onPress,
 }: {
   label: string;
+  flag?: boolean;
   selected: boolean;
-  tone?: "pass" | "fail" | "default";
   onPress: () => void;
 }) {
-  const sel =
-    tone === "pass"
-      ? "bg-green-600 border-green-600"
-      : tone === "fail"
-        ? "bg-red-600 border-red-600"
-        : "bg-foreground border-foreground";
+  const cls = selected
+    ? flag
+      ? "bg-fail border-fail"
+      : "bg-foreground border-foreground"
+    : flag
+      ? "border-fail/40 bg-card active:bg-muted"
+      : "border-border bg-card active:bg-muted";
+  const text = selected
+    ? flag
+      ? "text-on-fill"
+      : "text-background"
+    : flag
+      ? "text-fail"
+      : "text-foreground";
   return (
     <Pressable
       onPress={onPress}
-      className={`mr-2 mb-2 rounded-full border px-4 py-2 ${
-        selected ? sel : "border-border bg-card active:bg-muted"
-      }`}
+      className={`mr-2 mb-2 rounded-lg border-2 px-4 py-2.5 ${cls}`}
     >
-      <Text
-        className={`text-[13px] ${selected ? "text-background" : "text-foreground"}`}
-      >
-        {label}
-      </Text>
+      <Text className={`font-body-medium text-[14px] ${text}`}>{label}</Text>
     </Pressable>
   );
 }
 
+const INPUT =
+  "rounded-xl border-2 border-border bg-card px-3.5 py-3 font-body text-[16px] text-foreground";
+
 export function QuestionField({ question: q, value, onChange }: Props) {
+  // Instructions read as quiet guidance, not a question.
   if (q.type === "instruction") {
     return (
-      <View className="mb-4">
-        <Text className="text-[15px] text-muted-foreground">{q.label}</Text>
+      <View className="mb-5 rounded-xl bg-muted px-4 py-3">
+        <Text className="font-body text-[14px] leading-5 text-muted-foreground">
+          {q.label}
+        </Text>
         {q.helpText ? (
-          <Text className="mt-1 text-[13px] text-muted-foreground">
+          <Text className="mt-1 font-body text-[13px] leading-5 text-muted-foreground">
             {q.helpText}
           </Text>
         ) : null}
@@ -65,76 +122,72 @@ export function QuestionField({ question: q, value, onChange }: Props) {
     );
   }
 
+  const numeric =
+    q.type === "number" || q.type === "temperature" || q.type === "slider";
+
   return (
-    <View className="mb-5">
-      <Text className="mb-2 text-[15px] font-medium text-foreground">
+    <View className="mb-6">
+      <Text className="mb-2.5 font-body-semibold text-[16px] leading-5 text-foreground">
         {q.label}
-        {q.required ? <Text className="text-red-600"> *</Text> : null}
-        {q.unit ? (
-          <Text className="text-muted-foreground"> ({q.unit})</Text>
-        ) : null}
+        {q.required ? <Text className="text-hivis"> *</Text> : null}
       </Text>
 
       {q.type === "passFailNA" || q.type === "question" ? (
-        <View className="flex-row flex-wrap">
-          <Chip
-            label="Pass"
-            tone="pass"
-            selected={value === "pass"}
-            onPress={() => onChange("pass")}
-          />
-          <Chip
-            label="Fail"
-            tone="fail"
-            selected={value === "fail"}
-            onPress={() => onChange("fail")}
-          />
-          <Chip
-            label="N/A"
-            selected={value === "na"}
-            onPress={() => onChange("na")}
-          />
-        </View>
+        <Segmented
+          cells={[
+            { value: "pass", label: "Pass", tone: "pass" },
+            { value: "fail", label: "Fail", tone: "fail" },
+            { value: "na", label: "N/A", tone: "neutral" },
+          ]}
+          value={value}
+          onChange={onChange}
+        />
       ) : q.type === "multipleChoice" || q.type === "list" ? (
         <View className="flex-row flex-wrap">
           {(q.options ?? []).map((o) => (
-            <Chip
+            <OptionPill
               key={o.label}
               label={o.label}
-              tone={o.flag ? "fail" : "default"}
+              flag={o.flag}
               selected={value === o.label}
               onPress={() => onChange(o.label)}
             />
           ))}
         </View>
       ) : q.type === "checkbox" ? (
-        <View className="flex-row items-center gap-3">
-          <Switch
-            value={value === true}
-            onValueChange={(v) => onChange(v)}
-          />
-          <Text className="text-foreground">{value ? "Yes" : "No"}</Text>
+        <View className="flex-row items-center justify-between rounded-xl border-2 border-border bg-card px-4 py-3">
+          <Text className="font-body-medium text-[15px] text-foreground">
+            {value ? "Yes" : "No"}
+          </Text>
+          <Switch value={value === true} onValueChange={(v) => onChange(v)} />
         </View>
-      ) : q.type === "number" ||
-        q.type === "temperature" ||
-        q.type === "slider" ? (
-        <TextInput
-          keyboardType="numeric"
-          value={value != null ? String(value) : ""}
-          onChangeText={(t) => onChange(t === "" ? undefined : Number(t))}
-          placeholder={
-            q.min != null || q.max != null ? `${q.min ?? ""}–${q.max ?? ""}` : "0"
-          }
-          placeholderTextColor="#9ca3af"
-          className="rounded-xl border border-border bg-card px-3 py-2.5 text-[15px] text-foreground"
-        />
+      ) : numeric ? (
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            keyboardType="numeric"
+            value={value != null ? String(value) : ""}
+            onChangeText={(t) => onChange(t === "" ? undefined : Number(t))}
+            placeholder={
+              q.min != null || q.max != null
+                ? `${q.min ?? ""}–${q.max ?? ""}`
+                : "0"
+            }
+            placeholderTextColor="oklch(0.6 0.01 80)"
+            className={`flex-1 ${INPUT} tabular-nums`}
+          />
+          {q.unit ? (
+            <Text className="font-heading text-[18px] uppercase tracking-wide text-muted-foreground">
+              {q.unit}
+            </Text>
+          ) : null}
+        </View>
       ) : q.type === "date" || q.type === "datetime" ? (
         <TextInput
           value={typeof value === "string" ? value : ""}
           onChangeText={onChange}
           placeholder="YYYY-MM-DD"
-          placeholderTextColor="#9ca3af"
-          className="rounded-xl border border-border bg-card px-3 py-2.5 text-[15px] text-foreground"
+          placeholderTextColor="oklch(0.6 0.01 80)"
+          className={`${INPUT} tabular-nums`}
         />
       ) : q.type === "text" ? (
         <TextInput
@@ -142,18 +195,20 @@ export function QuestionField({ question: q, value, onChange }: Props) {
           value={typeof value === "string" ? value : ""}
           onChangeText={onChange}
           placeholder="Type a response…"
-          placeholderTextColor="#9ca3af"
-          className="min-h-12 rounded-xl border border-border bg-card px-3 py-2.5 text-[15px] text-foreground"
+          placeholderTextColor="oklch(0.6 0.01 80)"
+          className={`min-h-14 ${INPUT}`}
         />
       ) : (
         // signature / photo / media / drawing / assetScan / siteSelect / address
-        <Text className="rounded-xl border border-dashed border-border px-3 py-2.5 text-[13px] text-muted-foreground">
-          {q.type} — captured in the field (not in this demo)
-        </Text>
+        <View className="rounded-xl border-2 border-dashed border-border px-4 py-3.5">
+          <Text className="font-body text-[13px] text-muted-foreground">
+            Captured in the field — {q.type}
+          </Text>
+        </View>
       )}
 
-      {q.helpText ? (
-        <Text className="mt-1 text-[12px] text-muted-foreground">
+      {q.helpText && q.type !== "instruction" ? (
+        <Text className="mt-2 font-body text-[13px] leading-4 text-muted-foreground">
           {q.helpText}
         </Text>
       ) : null}

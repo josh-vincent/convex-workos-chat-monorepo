@@ -23,6 +23,17 @@ import {
 import { useColorScheme, View } from "react-native";
 import { SafeAreaListener } from "react-native-safe-area-context";
 import { Uniwind, useCSSVariable } from "uniwind";
+import { useFonts } from "expo-font";
+import {
+  Barlow_400Regular,
+  Barlow_500Medium,
+  Barlow_600SemiBold,
+} from "@expo-google-fonts/barlow";
+import {
+  BarlowCondensed_500Medium,
+  BarlowCondensed_600SemiBold,
+  BarlowCondensed_700Bold,
+} from "@expo-google-fonts/barlow-condensed";
 
 const GLASS = isLiquidGlassAvailable();
 const IS_ANDROID = process.env.EXPO_OS === "android";
@@ -68,6 +79,17 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  // Signage-grade type for the field UI. Non-blocking: text falls back to system
+  // until Barlow loads, then swaps in.
+  useFonts({
+    Barlow_400Regular,
+    Barlow_500Medium,
+    Barlow_600SemiBold,
+    BarlowCondensed_500Medium,
+    BarlowCondensed_600SemiBold,
+    BarlowCondensed_700Bold,
+  });
+
   return (
     <ThemeProvider>
       <KeyboardProvider>
@@ -203,7 +225,10 @@ function StackLayout() {
       />
 
       <Stack.Screen name="inspections" options={{ title: "Inspections" }} />
-      <Stack.Screen name="inspection/[id]" options={{ title: "Inspection" }} />
+      <Stack.Screen
+        name="inspection/[id]"
+        options={{ headerShown: false }}
+      />
     </Stack>
   );
 }

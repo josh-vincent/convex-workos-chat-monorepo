@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^2.0.195",
+    "@expo-google-fonts/barlow": "^0.4.1",
+    "@expo-google-fonts/barlow-condensed": "^0.4.1",
     "@expo/ui": "~56.0.12",
     "@legendapp/list": "^2.0.19",
     "@packages/backend": "workspace:*",
