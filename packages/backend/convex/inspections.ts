@@ -23,6 +23,17 @@ export const start = mutation({
     inspectorId: v.id("users"),
     siteId: v.optional(v.id("sites")),
     assetId: v.optional(v.id("assets")),
+    // Anchor graph fields (spec §2, §5.2, §8) — optional, backward-compatible.
+    anchorType: v.optional(
+      v.union(
+        v.literal("job"),
+        v.literal("site"),
+        v.literal("contract"),
+        v.literal("person"),
+        v.literal("asset"),
+      ),
+    ),
+    anchorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const template = await ctx.db.get(args.templateId);
@@ -46,6 +57,8 @@ export const start = mutation({
       startedAt: Date.now(),
       responses: [],
       assetId: args.assetId,
+      anchorType: args.anchorType,
+      anchorId: args.anchorId,
     });
   },
 });

@@ -242,12 +242,24 @@ export default defineSchema({
     // Generated PDF report (see convex/reports.ts) — file storage id + its media row.
     reportStorageId: v.optional(v.id("_storage")),
     reportMediaId: v.optional(v.id("media")),
+    // Anchor graph (spec §2, §5.2, §8) — links an inspection to a job/site/contract/person/asset.
+    anchorType: v.optional(
+      v.union(
+        v.literal("job"),
+        v.literal("site"),
+        v.literal("contract"),
+        v.literal("person"),
+        v.literal("asset"),
+      ),
+    ),
+    anchorId: v.optional(v.string()),
   })
     .index("by_org", ["orgId"])
     .index("by_site", ["siteId"])
     .index("by_template", ["templateId"])
     .index("by_inspector", ["inspectorId"])
-    .index("by_org_status", ["orgId", "status"]),
+    .index("by_org_status", ["orgId", "status"])
+    .index("by_anchor", ["anchorType", "anchorId"]),
 
   issues: defineTable({
     orgId: v.id("organizations"),
@@ -518,4 +530,34 @@ export default defineSchema({
   })
     .index("by_project", ["projectId"])
     .index("by_user", ["userId"]),
+
+  // =========================================================================
+  // ANCHOR GRAPH — spec §2, §5.2, §8 (DoD #8)
+  // Records anchor to a job/site/contract/person/asset graph.
+  // =========================================================================
+
+  jobs: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    siteId: v.optional(v.id("sites")),
+    status: v.union(
+      v.literal("draft"),
+      v.literal("active"),
+      v.literal("complete"),
+    ),
+    hrcw: v.optional(v.boolean()), // high-risk construction work flag
+    startedReady: v.optional(v.boolean()),
+  }).index("by_org", ["orgId"]),
+
+  contracts: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    status: v.optional(v.string()),
+  }).index("by_org", ["orgId"]),
+
+  subcontractors: defineTable({
+    orgId: v.id("organizations"),
+    name: v.string(),
+    status: v.optional(v.string()),
+  }).index("by_org", ["orgId"]),
 });
