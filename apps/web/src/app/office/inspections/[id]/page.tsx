@@ -75,6 +75,8 @@ function CompliancePackPanel({
         anchorId: resolvedAnchorId,
       });
       setPackUrl(url);
+      // Open the PDF immediately in a new tab.
+      if (url) window.open(url, "_blank", "noopener");
     } finally {
       setPacking(false);
     }
@@ -135,10 +137,12 @@ function CompliancePackPanel({
         {packUrl && (
           <a
             href={packUrl}
-            download="compliance-pack.json"
+            target="_blank"
+            rel="noopener noreferrer"
+            download="compliance-pack.pdf"
             className="mt-4 block w-full rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-center text-sm font-medium text-emerald-700 hover:bg-emerald-100"
           >
-            Download manifest JSON
+            Open / download compliance pack PDF
           </a>
         )}
 
