@@ -560,4 +560,40 @@ export default defineSchema({
     name: v.string(),
     status: v.optional(v.string()),
   }).index("by_org", ["orgId"]),
+
+  // =========================================================================
+  // REGISTER ENTRIES — spec §5.3, DoD #4
+  // Tracks currency of licences, competencies, SDS, insurance, plant, and
+  // inductions against a person / site / asset / subcontractor anchor.
+  // `status` is NEVER stored — it is always derived at query time via
+  // convex/lib/currency.ts#currencyStatus().
+  // =========================================================================
+  registerEntries: defineTable({
+    orgId: v.id("organizations"),
+    registerType: v.union(
+      v.literal("licence"),
+      v.literal("competency"),
+      v.literal("sds"),
+      v.literal("insurance"),
+      v.literal("plant"),
+      v.literal("induction"),
+    ),
+    anchorType: v.union(
+      v.literal("person"),
+      v.literal("site"),
+      v.literal("asset"),
+      v.literal("subcontractor"),
+    ),
+    anchorId: v.string(),
+    label: v.string(),
+    identifier: v.optional(v.string()),
+    issuedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    reviewEveryDays: v.optional(v.number()),
+    leadTimeDays: v.optional(v.number()),
+    documentRef: v.optional(v.id("media")),
+    verifiedBy: v.optional(v.id("users")),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_anchor", ["anchorType", "anchorId"]),
 });
