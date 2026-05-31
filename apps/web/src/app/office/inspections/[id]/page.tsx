@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@packages/backend/convex/_generated/api";
 import type { Id } from "@packages/backend/convex/_generated/dataModel";
-import { ChevronLeft, FileText, Sparkles } from "lucide-react";
+import { ChevronLeft, FileDown, FileText, Sparkles } from "lucide-react";
 import {
   ScoreBadge,
   StatusPill,
@@ -28,7 +28,20 @@ export default function InspectionDetailPage() {
   const params = useParams<{ id: string }>();
   const inspectionId = params.id as Id<"inspections">;
   const complete = useMutation(api.inspections.complete);
+  const generateReport = useAction(api.reports.generate);
   const [completing, setCompleting] = useState(false);
+  const [report, setReport] = useState<"idle" | "working">("idle");
+
+  const onDownloadReport = async () => {
+    if (report === "working") return;
+    setReport("working");
+    try {
+      const { url } = await generateReport({ inspectionId });
+      if (url) window.open(url, "_blank", "noopener");
+    } finally {
+      setReport("idle");
+    }
+  };
 
   const data = useQuery(api.inspections.get, { inspectionId });
 
@@ -128,24 +141,39 @@ export default function InspectionDetailPage() {
           )}
         </div>
 
-        {!isDone && (
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <Link
-              href={`/?inspectionId=${inspectionId}`}
-              className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-neutral-700"
-            >
-              <Sparkles className="h-4 w-4" /> Complete with the assistant
-            </Link>
-            <button
-              type="button"
-              onClick={onComplete}
-              disabled={completing}
-              className="rounded-lg border border-border bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-            >
-              {completing ? "Submitting…" : "Mark complete"}
-            </button>
-          </div>
-        )}
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {!isDone && (
+            <>
+              <Link
+                href={`/?inspectionId=${inspectionId}`}
+                className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+              >
+                <Sparkles className="h-4 w-4" /> Complete with the assistant
+              </Link>
+              <button
+                type="button"
+                onClick={onComplete}
+                disabled={completing}
+                className="rounded-lg border border-border bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              >
+                {completing ? "Submitting…" : "Mark complete"}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={onDownloadReport}
+            disabled={report === "working"}
+            className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium disabled:opacity-50 ${
+              isDone
+                ? "bg-neutral-900 text-white hover:bg-neutral-700"
+                : "border border-border bg-white text-neutral-700 hover:bg-neutral-50"
+            }`}
+          >
+            <FileDown className="h-4 w-4" />
+            {report === "working" ? "Generating…" : "PDF report"}
+          </button>
+        </div>
       </header>
 
       <div className="space-y-6">
