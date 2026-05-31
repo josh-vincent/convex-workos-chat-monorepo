@@ -201,6 +201,9 @@ function StackLayout() {
           headerShown: false,
         }}
       />
+
+      <Stack.Screen name="inspections" options={{ title: "Inspections" }} />
+      <Stack.Screen name="inspection/[id]" options={{ title: "Inspection" }} />
     </Stack>
   );
 }

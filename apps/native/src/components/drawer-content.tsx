@@ -118,6 +118,10 @@ export function DrawerContent({
       >
         <DrawerNavItem label="Chats" onPress={() => onNavigate("/chats")} />
         <DrawerNavItem
+          label="Inspections"
+          onPress={() => onNavigate("/inspections" as Href)}
+        />
+        <DrawerNavItem
           label="Settings"
           onPress={() => {
             if (process.env.EXPO_OS === "android") {

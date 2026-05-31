@@ -171,3 +171,20 @@ export const list = query({
       .collect();
   },
 });
+
+/** An inspection plus the frozen template version it runs on (the questions to render). */
+export const get = query({
+  args: { inspectionId: v.id("inspections") },
+  handler: async (ctx, { inspectionId }) => {
+    const inspection = await ctx.db.get(inspectionId);
+    if (!inspection) return null;
+    const tv = await ctx.db.get(inspection.templateVersionId);
+    const template = await ctx.db.get(inspection.templateId);
+    return {
+      inspection,
+      templateName: template?.name ?? "Inspection",
+      sections: tv?.sections ?? [],
+      scoringEnabled: tv?.scoringEnabled ?? true,
+    };
+  },
+});
