@@ -1,6 +1,24 @@
 @import 'tailwindcss';
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+
+/* Form-builder inputs (component layer so width utilities like w-40/w-auto win). */
+@layer components {
+  .input {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+    background-color: #fff;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--foreground);
+    outline: none;
+  }
+  .input:focus {
+    border-color: var(--ring);
+  }
+}
 /*
   ---break---
 */

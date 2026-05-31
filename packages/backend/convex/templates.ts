@@ -4,14 +4,25 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { section } from "./schema";
 
-/** List an org's templates (metadata only). Fine for small orgs; prefer listPaginated at scale. */
+/**
+ * List the templates available to an org: its own (private + public) plus any
+ * template shared publicly by another org. Fine for small orgs; prefer listPaginated
+ * at scale.
+ */
 export const list = query({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
-    return await ctx.db
+    const own = await ctx.db
       .query("templates")
       .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .collect();
+    const shared = await ctx.db
+      .query("templates")
+      .withIndex("by_visibility", (q) => q.eq("visibility", "public"))
+      .collect();
+    const byId = new Map(own.map((t) => [t._id, t]));
+    for (const t of shared) byId.set(t._id, t); // dedupe org's own public ones
+    return [...byId.values()];
   },
 });
 
@@ -99,8 +110,13 @@ export const create = mutation({
     sections: v.array(section),
     scoringEnabled: v.boolean(),
     createdBy: v.optional(v.id("users")),
+    visibility: v.optional(v.union(v.literal("private"), v.literal("public"))),
   },
   handler: async (ctx, args) => {
+    const fieldCount = args.sections.reduce(
+      (n, s) => n + s.questions.filter((q) => q.type !== "instruction").length,
+      0,
+    );
     const templateId = await ctx.db.insert("templates", {
       orgId: args.orgId,
       key: args.key,
@@ -111,6 +127,9 @@ export const create = mutation({
       packKey: args.packKey,
       currentVersion: 1,
       status: "published",
+      source: "custom", // built in-app via the form builder
+      visibility: args.visibility ?? "private",
+      fieldCount,
     });
     await ctx.db.insert("templateVersions", {
       templateId,

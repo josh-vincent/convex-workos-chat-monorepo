@@ -55,15 +55,23 @@ export default function OfficeTemplatesPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-8 py-10">
-      <header className="mb-8">
-        <h1 className="font-montserrat text-2xl font-bold tracking-tight">
-          Form library
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {loading
-            ? "Loading templates…"
-            : `${sorted.length} templates ready to inspect against.`}
-        </p>
+      <header className="mb-8 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="font-montserrat text-2xl font-bold tracking-tight">
+            Form library
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {loading
+              ? "Loading templates…"
+              : `${sorted.length} templates ready to inspect against.`}
+          </p>
+        </div>
+        <Link
+          href="/office/templates/new"
+          className="shrink-0 rounded-lg bg-neutral-900 px-3.5 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+        >
+          + New form
+        </Link>
       </header>
 
       {loading ? (
@@ -90,11 +98,19 @@ export default function OfficeTemplatesPage() {
                   <h2 className="font-medium leading-snug text-neutral-900">
                     {t.name}
                   </h2>
-                  {featured && (
+                  {featured ? (
                     <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
                       Demo
                     </span>
-                  )}
+                  ) : t.visibility === "public" ? (
+                    <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-800">
+                      Public
+                    </span>
+                  ) : t.source === "custom" ? (
+                    <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
+                      Custom
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {[t.category, t.industry].filter(Boolean).join(" · ")}

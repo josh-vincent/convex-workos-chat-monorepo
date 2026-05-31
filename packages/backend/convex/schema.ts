@@ -185,10 +185,14 @@ export default defineSchema({
     sourceUrl: v.optional(v.string()), // link back to the public source
     downloads: v.optional(v.number()), // popularity signal from the source library
     fieldCount: v.optional(v.number()), // denormalised answerable-field count
+    // Sharing: "private" = this org only; "public" = shared into every org's library.
+    // Undefined is treated as private.
+    visibility: v.optional(v.union(v.literal("private"), v.literal("public"))),
   })
     .index("by_org", ["orgId"])
     .index("by_org_key", ["orgId", "key"])
     .index("by_pack", ["packKey"])
+    .index("by_visibility", ["visibility"])
     // Full-text search so a library of *infinite* templates stays browsable/searchable
     // server-side (never "collect() everything"). Filter fields keep results org-scoped.
     .searchIndex("search_name", {
