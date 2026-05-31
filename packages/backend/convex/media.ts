@@ -1,0 +1,54 @@
+// File attachments for inspection items — Convex file storage + the `media` table.
+// Flow: generateUploadUrl → client POSTs bytes → record(storageId) → mediaId on the
+// inspection response. urls() resolves mediaIds to displayable URLs.
+import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+
+const KIND = v.union(
+  v.literal("photo"),
+  v.literal("video"),
+  v.literal("signature"),
+  v.literal("doc"),
+);
+
+/** Short-lived URL the client POSTs the file bytes to. */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Record an uploaded file in `media` and return its id + a displayable URL. */
+export const record = mutation({
+  args: {
+    orgId: v.id("organizations"),
+    storageId: v.id("_storage"),
+    kind: v.optional(KIND),
+  },
+  handler: async (ctx, { orgId, storageId, kind }) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const mediaId = await ctx.db.insert("media", {
+      orgId,
+      storageId,
+      kind: kind ?? "photo",
+    });
+    return { mediaId, url: await ctx.storage.getUrl(storageId) };
+  },
+});
+
+/** Resolve a set of media ids to current display URLs (for rendering thumbnails). */
+export const urls = query({
+  args: { ids: v.array(v.id("media")) },
+  handler: async (ctx, { ids }) => {
+    const out: { mediaId: (typeof ids)[number]; url: string | null }[] = [];
+    for (const id of ids) {
+      const m = await ctx.db.get(id);
+      if (m) out.push({ mediaId: id, url: await ctx.storage.getUrl(m.storageId) });
+    }
+    return out;
+  },
+});

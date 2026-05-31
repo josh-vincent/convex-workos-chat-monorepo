@@ -3,11 +3,14 @@ import { api } from "@packages/backend/convex/_generated/api";
 import type { Id } from "@packages/backend/convex/_generated/dataModel";
 import {
   QuestionField,
+  type Attachment,
   type Question,
 } from "@/components/inspection/QuestionField";
 import { Icon } from "@/components/icon";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, Sparkles } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
+import { uploadAsync, FileSystemUploadType } from "expo-file-system/legacy";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,22 +33,55 @@ export default function InspectionRunner() {
   const data = useQuery(api.inspections.get, id ? { inspectionId } : "skip");
   const save = useMutation(api.inspections.saveResponses);
   const complete = useMutation(api.inspections.complete);
+  const generateUploadUrl = useMutation(api.media.generateUploadUrl);
+  const recordMedia = useMutation(api.media.record);
 
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [attachments, setAttachments] = useState<Record<string, Attachment[]>>(
+    {},
+  );
+  const [uploading, setUploading] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ score?: number; actions: number } | null>(
     null,
   );
   const seeded = useRef(false);
 
+  // Resolve any previously-attached media to display URLs (for re-opened inspections).
+  const savedMediaIds = useMemo(
+    () =>
+      (data?.inspection.responses ?? []).flatMap(
+        (r) => (r.mediaIds ?? []) as Id<"media">[],
+      ),
+    [data],
+  );
+  const mediaUrls = useQuery(
+    api.media.urls,
+    savedMediaIds.length ? { ids: savedMediaIds } : "skip",
+  );
+
   useEffect(() => {
     if (data?.inspection && !seeded.current) {
       seeded.current = true;
-      const init: Record<string, unknown> = {};
-      for (const r of data.inspection.responses) init[r.questionId] = r.value;
-      setAnswers(init);
+      const initAns: Record<string, unknown> = {};
+      const urlById = new Map(
+        (mediaUrls ?? []).map((m) => [m.mediaId as string, m.url]),
+      );
+      const initAtt: Record<string, Attachment[]> = {};
+      for (const r of data.inspection.responses) {
+        initAns[r.questionId] = r.value;
+        const ids = (r.mediaIds ?? []) as Id<"media">[];
+        if (ids.length) {
+          initAtt[r.questionId] = ids.map((mid) => ({
+            mediaId: mid as string,
+            url: urlById.get(mid as string) ?? null,
+          }));
+        }
+      }
+      setAnswers(initAns);
+      setAttachments(initAtt);
     }
-  }, [data]);
+  }, [data, mediaUrls]);
 
   const sections = (data?.sections ?? []) as Section[];
   const total = useMemo(
@@ -63,12 +99,66 @@ export default function InspectionRunner() {
   const done = result !== null;
 
   const persist = () => {
-    const responses = Object.entries(answers).map(([questionId, value]) => ({
+    const ids = new Set([
+      ...Object.keys(answers),
+      ...Object.keys(attachments),
+    ]);
+    const responses = [...ids].map((questionId) => ({
       questionId,
-      value,
+      value: answers[questionId],
+      mediaIds: (attachments[questionId] ?? []).map(
+        (a) => a.mediaId as Id<"media">,
+      ),
     }));
     return save({ inspectionId, responses });
   };
+
+  // Pick a photo → upload to Convex storage → attach mediaId to this question.
+  const attach = async (questionId: string) => {
+    if (uploading || !data) return;
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.6,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    const asset = picked.assets[0];
+    setUploading(questionId);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      // RN can't build a Blob from a file uri; upload the file bytes directly.
+      const up = await uploadAsync(uploadUrl, asset.uri, {
+        httpMethod: "POST",
+        uploadType: FileSystemUploadType.BINARY_CONTENT,
+        headers: { "Content-Type": asset.mimeType ?? "image/jpeg" },
+      });
+      const { storageId } = JSON.parse(up.body) as { storageId: Id<"_storage"> };
+      const saved = await recordMedia({
+        orgId: data.inspection.orgId,
+        storageId,
+        kind: "photo",
+      });
+      setAttachments((a) => ({
+        ...a,
+        [questionId]: [
+          ...(a[questionId] ?? []),
+          { mediaId: saved.mediaId as string, url: saved.url },
+        ],
+      }));
+    } catch (e) {
+      Alert.alert(
+        "Upload failed",
+        e instanceof Error ? e.message : "Could not attach the photo.",
+      );
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const removeAttachment = (questionId: string, mediaId: string) =>
+    setAttachments((a) => ({
+      ...a,
+      [questionId]: (a[questionId] ?? []).filter((m) => m.mediaId !== mediaId),
+    }));
 
   const onComplete = async () => {
     setBusy(true);
@@ -158,7 +248,6 @@ export default function InspectionRunner() {
         contentContainerClassName="px-4 pt-4 pb-40"
         contentInsetAdjustmentBehavior="never"
       >
-        {/* Assistant hand-off — the one place the hi-vis accent invites action */}
         <Pressable
           onPress={() => router.push({ pathname: "/", params: { inspectionId } })}
           className="mb-7 flex-row items-center gap-2.5 rounded-xl border-2 border-hivis/45 bg-hivis/10 px-4 py-3.5 active:bg-hivis/20"
@@ -193,13 +282,16 @@ export default function InspectionRunner() {
                 question={q}
                 value={answers[q.id]}
                 onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+                attachments={attachments[q.id] ?? []}
+                attaching={uploading === q.id}
+                onAttach={() => attach(q.id)}
+                onRemove={(mid) => removeAttachment(q.id, mid)}
               />
             ))}
           </View>
         ))}
       </ScrollView>
 
-      {/* Sticky action bar — Complete is the hero (hi-vis), Save is secondary */}
       <View
         className="absolute bottom-0 left-0 right-0 flex-row items-stretch gap-3 border-t-2 border-border bg-card px-4 pt-3"
         style={{ paddingBottom: insets.bottom + 10 }}

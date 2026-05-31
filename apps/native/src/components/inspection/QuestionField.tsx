@@ -1,4 +1,13 @@
-import { Pressable, Switch, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { Camera, X } from "lucide-react-native";
+import { Icon } from "@/components/icon";
 
 export type Question = {
   id: string;
@@ -12,10 +21,16 @@ export type Question = {
   unit?: string;
 };
 
+export type Attachment = { mediaId: string; url: string | null };
+
 type Props = {
   question: Question;
   value: unknown;
   onChange: (value: unknown) => void;
+  attachments?: Attachment[];
+  attaching?: boolean;
+  onAttach?: () => void;
+  onRemove?: (mediaId: string) => void;
 };
 
 type Tone = "pass" | "fail" | "neutral";
@@ -27,7 +42,7 @@ function Segmented({
   onChange,
 }: {
   cells: { value: string; label: string; tone: Tone }[];
-  value: unknown;
+  value: string | undefined;
   onChange: (v: string) => void;
 }) {
   return (
@@ -66,7 +81,6 @@ function Segmented({
   );
 }
 
-/** Selectable option pill (multiple choice / list). Flag = "risk" option. */
 function OptionPill({
   label,
   flag,
@@ -102,11 +116,67 @@ function OptionPill({
   );
 }
 
+/** Optional photo evidence — available on every question. */
+function Attachments({
+  attachments,
+  attaching,
+  onAttach,
+  onRemove,
+}: {
+  attachments: Attachment[];
+  attaching?: boolean;
+  onAttach: () => void;
+  onRemove: (mediaId: string) => void;
+}) {
+  return (
+    <View className="mt-2.5 flex-row flex-wrap items-center gap-2">
+      <Pressable
+        onPress={onAttach}
+        disabled={attaching}
+        className="h-14 w-14 items-center justify-center rounded-lg border-2 border-dashed border-border active:bg-muted"
+      >
+        {attaching ? (
+          <ActivityIndicator size="small" />
+        ) : (
+          <Icon icon={Camera} className="h-5 w-5 text-muted-foreground" />
+        )}
+      </Pressable>
+      {attachments.map((a) => (
+        <View key={a.mediaId} className="relative">
+          {a.url ? (
+            <Image
+              source={{ uri: a.url }}
+              style={{ width: 56, height: 56, borderRadius: 8 }}
+            />
+          ) : (
+            <View className="h-14 w-14 rounded-lg bg-muted" />
+          )}
+          <Pressable
+            onPress={() => onRemove(a.mediaId)}
+            hitSlop={6}
+            className="absolute -right-1.5 -top-1.5 h-5 w-5 items-center justify-center rounded-full bg-foreground"
+          >
+            <Icon icon={X} className="h-3 w-3 text-background" />
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const INPUT =
   "rounded-xl border-2 border-border bg-card px-3.5 py-3 font-body text-[16px] text-foreground";
+const PLACEHOLDER = "oklch(0.6 0.01 80)";
 
-export function QuestionField({ question: q, value, onChange }: Props) {
-  // Instructions read as quiet guidance, not a question.
+export function QuestionField({
+  question: q,
+  value,
+  onChange,
+  attachments = [],
+  attaching,
+  onAttach,
+  onRemove,
+}: Props) {
   if (q.type === "instruction") {
     return (
       <View className="mb-5 rounded-xl bg-muted px-4 py-3">
@@ -139,8 +209,18 @@ export function QuestionField({ question: q, value, onChange }: Props) {
             { value: "fail", label: "Fail", tone: "fail" },
             { value: "na", label: "N/A", tone: "neutral" },
           ]}
-          value={value}
+          value={typeof value === "string" ? value : undefined}
           onChange={onChange}
+        />
+      ) : q.type === "checkbox" ? (
+        // Boolean → a clean Yes / No toggle (true / false).
+        <Segmented
+          cells={[
+            { value: "yes", label: "Yes", tone: "pass" },
+            { value: "no", label: "No", tone: "neutral" },
+          ]}
+          value={value === true ? "yes" : value === false ? "no" : undefined}
+          onChange={(v) => onChange(v === "yes")}
         />
       ) : q.type === "multipleChoice" || q.type === "list" ? (
         <View className="flex-row flex-wrap">
@@ -154,13 +234,6 @@ export function QuestionField({ question: q, value, onChange }: Props) {
             />
           ))}
         </View>
-      ) : q.type === "checkbox" ? (
-        <View className="flex-row items-center justify-between rounded-xl border-2 border-border bg-card px-4 py-3">
-          <Text className="font-body-medium text-[15px] text-foreground">
-            {value ? "Yes" : "No"}
-          </Text>
-          <Switch value={value === true} onValueChange={(v) => onChange(v)} />
-        </View>
       ) : numeric ? (
         <View className="flex-row items-center gap-2">
           <TextInput
@@ -172,7 +245,7 @@ export function QuestionField({ question: q, value, onChange }: Props) {
                 ? `${q.min ?? ""}–${q.max ?? ""}`
                 : "0"
             }
-            placeholderTextColor="oklch(0.6 0.01 80)"
+            placeholderTextColor={PLACEHOLDER}
             className={`flex-1 ${INPUT} tabular-nums`}
           />
           {q.unit ? (
@@ -186,7 +259,7 @@ export function QuestionField({ question: q, value, onChange }: Props) {
           value={typeof value === "string" ? value : ""}
           onChangeText={onChange}
           placeholder="YYYY-MM-DD"
-          placeholderTextColor="oklch(0.6 0.01 80)"
+          placeholderTextColor={PLACEHOLDER}
           className={`${INPUT} tabular-nums`}
         />
       ) : q.type === "text" ? (
@@ -195,19 +268,26 @@ export function QuestionField({ question: q, value, onChange }: Props) {
           value={typeof value === "string" ? value : ""}
           onChangeText={onChange}
           placeholder="Type a response…"
-          placeholderTextColor="oklch(0.6 0.01 80)"
+          placeholderTextColor={PLACEHOLDER}
           className={`min-h-14 ${INPUT}`}
         />
       ) : (
-        // signature / photo / media / drawing / assetScan / siteSelect / address
-        <View className="rounded-xl border-2 border-dashed border-border px-4 py-3.5">
-          <Text className="font-body text-[13px] text-muted-foreground">
-            Captured in the field — {q.type}
-          </Text>
-        </View>
+        // signature / photo / media / drawing — the attachment row below IS the control
+        <Text className="font-body text-[13px] text-muted-foreground">
+          Attach photo evidence below.
+        </Text>
       )}
 
-      {q.helpText && q.type !== "instruction" ? (
+      {onAttach ? (
+        <Attachments
+          attachments={attachments}
+          attaching={attaching}
+          onAttach={onAttach}
+          onRemove={onRemove ?? (() => {})}
+        />
+      ) : null}
+
+      {q.helpText ? (
         <Text className="mt-2 font-body text-[13px] leading-4 text-muted-foreground">
           {q.helpText}
         </Text>
