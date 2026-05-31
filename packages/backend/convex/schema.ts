@@ -16,6 +16,13 @@ import { v } from "convex/values";
 // Reusable validators
 // ---------------------------------------------------------------------------
 
+/** Jurisdiction codes supported by the platform. */
+export const jurisdictionUnion = v.union(
+  v.literal("vic_ohs"),
+  v.literal("whs_harmonised"),
+  v.literal("generic"),
+);
+
 /** Every question/answer field type Beacon supports. */
 export const questionType = v.union(
   v.literal("instruction"), // display-only guidance, no answer
@@ -113,6 +120,7 @@ export default defineSchema({
       v.literal("enterprise"),
     ),
     dataRetentionYears: v.optional(v.number()),
+    jurisdiction: v.optional(jurisdictionUnion),
   }).index("by_slug", ["slug"]),
 
   // Region › site › area hierarchy via self-referential parentSiteId.
@@ -188,6 +196,7 @@ export default defineSchema({
     // Sharing: "private" = this org only; "public" = shared into every org's library.
     // Undefined is treated as private.
     visibility: v.optional(v.union(v.literal("private"), v.literal("public"))),
+    jurisdiction: v.optional(jurisdictionUnion),
   })
     .index("by_org", ["orgId"])
     .index("by_org_key", ["orgId", "key"])
@@ -603,6 +612,17 @@ export default defineSchema({
   // Daily currency sweep raises alerts for expiring/expired/review_due entries
   // and overdue inspections. Status is stored (open → acknowledged → resolved).
   // =========================================================================
+  // =========================================================================
+  // JURISDICTION CONFIGS — spec §11, DoD #9
+  // Config-driven jurisdiction values. No hard-coded constants.
+  // Key/value store partitioned by jurisdiction; "generic" is the fallback.
+  // =========================================================================
+  jurisdictionConfigs: defineTable({
+    jurisdiction: jurisdictionUnion,
+    key: v.string(),
+    value: v.any(),
+  }).index("by_jurisdiction_key", ["jurisdiction", "key"]),
+
   alerts: defineTable({
     orgId: v.id("organizations"),
     kind: v.union(
