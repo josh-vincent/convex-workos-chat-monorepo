@@ -28,8 +28,17 @@ export const record = mutation({
     storageId: v.id("_storage"),
     kind: v.optional(KIND),
     name: v.optional(v.string()),
+    // Tamper-evident evidence metadata (spec §5.5, §10, DoD #3).
+    capturedAt: v.optional(v.number()),
+    capturedBy: v.optional(v.id("users")),
+    geo: v.optional(v.object({
+      lat: v.number(),
+      lng: v.number(),
+      accuracy: v.optional(v.number()),
+    })),
+    contentHash: v.optional(v.string()),
   },
-  handler: async (ctx, { orgId, storageId, kind, name }) => {
+  handler: async (ctx, { orgId, storageId, kind, name, capturedAt, capturedBy, geo, contentHash }) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
     const resolvedKind = kind ?? "photo";
@@ -38,6 +47,10 @@ export const record = mutation({
       storageId,
       kind: resolvedKind,
       name,
+      capturedAt,
+      capturedBy,
+      geo,
+      contentHash,
     });
     return {
       mediaId,
@@ -57,6 +70,9 @@ export const urls = query({
       url: string | null;
       kind: string;
       name: string | null;
+      capturedAt?: number;
+      geo?: { lat: number; lng: number; accuracy?: number };
+      contentHash?: string;
     }[] = [];
     for (const id of ids) {
       const m = await ctx.db.get(id);
@@ -66,6 +82,9 @@ export const urls = query({
           url: await ctx.storage.getUrl(m.storageId),
           kind: m.kind,
           name: m.name ?? null,
+          capturedAt: m.capturedAt,
+          geo: m.geo,
+          contentHash: m.contentHash,
         });
     }
     return out;

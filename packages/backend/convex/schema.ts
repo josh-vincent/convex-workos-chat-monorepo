@@ -398,6 +398,15 @@ export default defineSchema({
     ),
     name: v.optional(v.string()), // original filename (for document chips)
     uploadedBy: v.optional(v.id("users")),
+    // Tamper-evident evidence metadata (spec §5.5, §10, DoD #3).
+    capturedAt: v.optional(v.number()), // epoch ms when the evidence was captured
+    capturedBy: v.optional(v.id("users")), // user who captured the evidence
+    geo: v.optional(v.object({ // GPS coords at capture time
+      lat: v.number(),
+      lng: v.number(),
+      accuracy: v.optional(v.number()),
+    })),
+    contentHash: v.optional(v.string()), // SHA-256 hex of the file bytes
   }).index("by_org", ["orgId"]),
 
   // Append-only audit trail (compliance + data trust). Never updated/deleted.
