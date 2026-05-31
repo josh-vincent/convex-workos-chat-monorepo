@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@packages/backend/convex/_generated/api";
 import type { Id } from "@packages/backend/convex/_generated/dataModel";
 import {
@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -41,6 +42,24 @@ export default function InspectionRunner() {
   const complete = useMutation(api.inspections.complete);
   const generateUploadUrl = useMutation(api.media.generateUploadUrl);
   const recordMedia = useMutation(api.media.record);
+  const generateReport = useAction(api.reports.generate);
+  const [reporting, setReporting] = useState(false);
+
+  const onReport = async () => {
+    if (reporting) return;
+    setReporting(true);
+    try {
+      const { url } = await generateReport({ inspectionId });
+      if (url) await Linking.openURL(url);
+    } catch (e) {
+      Alert.alert(
+        "Report failed",
+        e instanceof Error ? e.message : "Could not generate the report.",
+      );
+    } finally {
+      setReporting(false);
+    }
+  };
 
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -391,13 +410,17 @@ export default function InspectionRunner() {
         style={{ paddingBottom: insets.bottom + 10 }}
       >
         <Pressable
-          onPress={() => void persist()}
-          disabled={busy}
-          className="items-center justify-center rounded-xl border-2 border-border bg-background px-6 active:bg-muted"
+          onPress={() => (done ? onReport() : void persist())}
+          disabled={busy || reporting}
+          className="min-w-[92px] items-center justify-center rounded-xl border-2 border-border bg-background px-6 active:bg-muted"
         >
-          <Text className="font-heading text-[15px] uppercase tracking-wide text-foreground">
-            Save
-          </Text>
+          {reporting ? (
+            <ActivityIndicator />
+          ) : (
+            <Text className="font-heading text-[15px] uppercase tracking-wide text-foreground">
+              {done ? "Report" : "Save"}
+            </Text>
+          )}
         </Pressable>
         <Pressable
           onPress={onComplete}

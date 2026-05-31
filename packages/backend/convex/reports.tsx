@@ -6,6 +6,7 @@
 import { v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const INK = rgb(0.13, 0.13, 0.14);
@@ -30,6 +31,7 @@ type ReportData = {
     value?: unknown;
     note?: string;
     flagged?: boolean;
+    media?: { storageId: string; kind: string; name: string | null }[];
   }[];
   score?: number;
   inspectorName?: string;
@@ -72,7 +74,10 @@ function answerText(value: unknown): { text: string; color: ReturnType<typeof rg
   return { text: s, color: INK };
 }
 
-async function buildPdf(data: ReportData): Promise<Uint8Array> {
+async function buildPdf(
+  data: ReportData,
+  photoBytes: Map<string, Uint8Array>,
+): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -222,6 +227,8 @@ async function buildPdf(data: ReportData): Promise<Uint8Array> {
     });
     y -= 8;
 
+    const THUMB = 64;
+    const PER_ROW = 5;
     for (const q of section.questions) {
       if (q.type === "instruction") continue;
       const r = byId.get(q.id);
@@ -229,9 +236,30 @@ async function buildPdf(data: ReportData): Promise<Uint8Array> {
       const unit = q.unit && a.text !== "Not answered" ? ` ${q.unit}` : "";
       const labelLines = wrap(q.label, 10, bold);
       const noteLines = r?.note ? wrap(`Note: ${r.note}`, 9, oblique, W - M * 2 - 12) : [];
+      const media = r?.media ?? [];
+      const docs = media.filter((m) => m.kind === "doc");
 
-      // Keep label + answer + note together — never split a question across pages.
-      need(labelLines.length * 13 + 16 + noteLines.length * 12 + 6);
+      // Embed photo/signature images up front (so block height is known).
+      const imgs: Awaited<ReturnType<typeof pdf.embedJpg>>[] = [];
+      for (const m of media) {
+        if (m.kind === "doc") continue;
+        const bytes = photoBytes.get(m.storageId);
+        if (!bytes) continue;
+        try {
+          imgs.push(await pdf.embedJpg(bytes));
+        } catch {
+          try {
+            imgs.push(await pdf.embedPng(bytes));
+          } catch {
+            /* unsupported image — skip */
+          }
+        }
+      }
+      const photoRows = imgs.length ? Math.ceil(imgs.length / PER_ROW) : 0;
+      const mediaH = photoRows * (THUMB + 6) + docs.length * 13;
+
+      // Keep label + answer + note + evidence together — never split a question.
+      need(labelLines.length * 13 + 16 + noteLines.length * 12 + mediaH + 8);
 
       for (const ln of labelLines) {
         page.drawText(ln, { x: M, y: y - 10, size: 10, font: bold, color: INK });
@@ -258,7 +286,28 @@ async function buildPdf(data: ReportData): Promise<Uint8Array> {
         page.drawText(ln, { x: M + 12, y: y - 9, size: 9, font: oblique, color: MUTED });
         y -= 12;
       }
-      y -= 6;
+      for (const d of docs) {
+        page.drawText(`Attachment: ${clean(d.name ?? "document")}`, {
+          x: M + 12,
+          y: y - 9,
+          size: 9,
+          font,
+          color: MUTED,
+        });
+        y -= 13;
+      }
+      // Photo thumbnails, wrapped to PER_ROW per row.
+      for (let i = 0; i < imgs.length; i++) {
+        if (i % PER_ROW === 0) y -= THUMB + 6;
+        const col = i % PER_ROW;
+        page.drawImage(imgs[i], {
+          x: M + 12 + col * (THUMB + 6),
+          y: y,
+          width: THUMB,
+          height: THUMB,
+        });
+      }
+      y -= 8;
     }
   }
 
@@ -271,7 +320,22 @@ async function render(ctx: ActionCtx, inspectionId: string) {
     inspectionId: inspectionId as never,
   })) as ReportData | null;
   if (!data) throw new Error("Inspection not found");
-  const bytes = await buildPdf(data);
+
+  // Pull the bytes for each attached photo so they can be embedded in the PDF.
+  const photoBytes = new Map<string, Uint8Array>();
+  for (const r of data.responses) {
+    for (const m of r.media ?? []) {
+      if (m.kind === "doc" || photoBytes.has(m.storageId)) continue;
+      try {
+        const blob = await ctx.storage.get(m.storageId as Id<"_storage">);
+        if (blob) photoBytes.set(m.storageId, new Uint8Array(await blob.arrayBuffer()));
+      } catch {
+        /* missing blob — skip */
+      }
+    }
+  }
+
+  const bytes = await buildPdf(data, photoBytes);
   const storageId = await ctx.storage.store(
     new Blob([bytes as unknown as BlobPart], { type: "application/pdf" }),
   );

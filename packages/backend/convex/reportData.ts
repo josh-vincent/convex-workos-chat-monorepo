@@ -18,6 +18,28 @@ export const forInspection = internalQuery({
     const inspector = await ctx.db.get(insp.inspectorId);
     const site = insp.siteId ? await ctx.db.get(insp.siteId) : null;
 
+    // Resolve each response's attached media (storageId + kind) so the report can
+    // embed photos and list documents.
+    const responses = await Promise.all(
+      insp.responses.map(async (r) => {
+        const media = await Promise.all(
+          (r.mediaIds ?? []).map(async (mid) => {
+            const m = await ctx.db.get(mid);
+            return m
+              ? { storageId: m.storageId, kind: m.kind, name: m.name ?? null }
+              : null;
+          }),
+        );
+        return {
+          questionId: r.questionId,
+          value: r.value,
+          note: r.note,
+          flagged: r.flagged,
+          media: media.filter((m): m is NonNullable<typeof m> => m !== null),
+        };
+      }),
+    );
+
     return {
       orgId: insp.orgId,
       orgName: org?.name ?? "Organization",
@@ -26,12 +48,7 @@ export const forInspection = internalQuery({
       version: insp.version,
       sections: tv.sections,
       scoringEnabled: tv.scoringEnabled,
-      responses: insp.responses.map((r) => ({
-        questionId: r.questionId,
-        value: r.value,
-        note: r.note,
-        flagged: r.flagged,
-      })),
+      responses,
       score: insp.score,
       inspectorName: inspector?.name,
       siteName: site?.name ?? undefined,
