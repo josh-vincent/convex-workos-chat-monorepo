@@ -305,11 +305,18 @@ export default defineSchema({
     title: v.string(),
     description: v.optional(v.string()),
     assigneeId: v.optional(v.id("users")),
-    priority: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+    priority: v.union(
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+      v.literal("critical"), // extended for closed-loop (spec §5.4)
+    ),
     status: v.union(
-      v.literal("todo"),
+      v.literal("todo"),      // legacy — kept for back-compat
+      v.literal("open"),      // new canonical "open" state
       v.literal("in_progress"),
       v.literal("done"),
+      v.literal("verified"),  // closed-loop: evidence verified
     ),
     dueDate: v.optional(v.number()),
     source: v.union(
@@ -327,11 +334,21 @@ export default defineSchema({
     projectId: v.optional(v.id("projects")),
     recurringRule: v.optional(v.string()),
     completedAt: v.optional(v.number()),
+    // Closed-loop fields (spec §5.4, DoD #11)
+    assignedTo: v.optional(v.id("users")),   // primary assignee for closed-loop tracking
+    dueAt: v.optional(v.number()),            // epoch ms deadline
+    evidence: v.optional(v.array(v.object({
+      mediaId: v.optional(v.id("media")),
+      note: v.optional(v.string()),
+    }))),
+    verifiedBy: v.optional(v.id("users")),
+    verifiedAt: v.optional(v.number()),
   })
     .index("by_org", ["orgId"])
     .index("by_assignee", ["assigneeId"])
     .index("by_org_status", ["orgId", "status"])
-    .index("by_org_module", ["orgId", "module"]),
+    .index("by_org_module", ["orgId", "module"])
+    .index("by_org_assignee", ["orgId", "assignedTo"]),
 
   assets: defineTable({
     orgId: v.id("organizations"),

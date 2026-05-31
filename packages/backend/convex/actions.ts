@@ -1,8 +1,21 @@
 // Corrective actions / tasks — the "close the loop" surface.
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
 
-const priority = v.union(v.literal("low"), v.literal("medium"), v.literal("high"));
+const priority = v.union(
+  v.literal("low"),
+  v.literal("medium"),
+  v.literal("high"),
+  v.literal("critical"),
+);
+
+const status = v.union(
+  v.literal("todo"),
+  v.literal("open"),
+  v.literal("in_progress"),
+  v.literal("done"),
+  v.literal("verified"),
+);
 
 export const create = mutation({
   args: {
@@ -65,6 +78,75 @@ export const listForAssignee = query({
     return await ctx.db
       .query("actions")
       .withIndex("by_assignee", (q) => q.eq("assigneeId", assigneeId))
+      .collect();
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Closed-loop (spec §5.4, DoD #11)
+// ---------------------------------------------------------------------------
+
+/** Patch any combination of status / assignedTo / dueAt / priority. */
+export const update = mutation({
+  args: {
+    actionId: v.id("actions"),
+    status: v.optional(status),
+    assignedTo: v.optional(v.id("users")),
+    dueAt: v.optional(v.number()),
+    priority: v.optional(priority),
+  },
+  handler: async (ctx, { actionId, status: s, assignedTo, dueAt, priority: p }) => {
+    // Patch only the fields that were explicitly provided.
+    await ctx.db.patch(actionId, {
+      ...(s !== undefined && { status: s }),
+      ...(assignedTo !== undefined && { assignedTo }),
+      ...(dueAt !== undefined && { dueAt }),
+      ...(p !== undefined && { priority: p }),
+    });
+  },
+});
+
+const evidenceItem = v.object({
+  mediaId: v.optional(v.id("media")),
+  note: v.optional(v.string()),
+});
+
+/** Close the loop: record verifiable evidence and mark the action verified. */
+export const verify = mutation({
+  args: {
+    actionId: v.id("actions"),
+    evidence: v.array(evidenceItem),
+  },
+  handler: async (ctx, { actionId, evidence }) => {
+    if (evidence.length === 0) {
+      throw new ConvexError("At least one evidence item is required to verify an action.");
+    }
+    await ctx.db.patch(actionId, {
+      status: "verified",
+      evidence,
+      verifiedAt: Date.now(),
+    });
+  },
+});
+
+/** All actions for an org; optionally filtered to a single assignee. */
+export const listForOwner = query({
+  args: {
+    orgId: v.id("organizations"),
+    assignedTo: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { orgId, assignedTo }) => {
+    if (assignedTo !== undefined) {
+      return await ctx.db
+        .query("actions")
+        .withIndex("by_org_assignee", (q) =>
+          q.eq("orgId", orgId).eq("assignedTo", assignedTo),
+        )
+        .collect();
+    }
+    return await ctx.db
+      .query("actions")
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
       .collect();
   },
 });
