@@ -10,7 +10,12 @@ import { Icon } from "@/components/icon";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, Sparkles } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
-import { uploadAsync, FileSystemUploadType } from "expo-file-system/legacy";
+import {
+  uploadAsync,
+  FileSystemUploadType,
+  writeAsStringAsync,
+  cacheDirectory,
+} from "expo-file-system/legacy";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -119,17 +124,27 @@ export default function InspectionRunner() {
     const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.6,
+      base64: true,
     });
     if (picked.canceled || !picked.assets[0]) return;
     const asset = picked.assets[0];
     setUploading(questionId);
     try {
       const uploadUrl = await generateUploadUrl();
-      // RN can't build a Blob from a file uri; upload the file bytes directly.
-      const up = await uploadAsync(uploadUrl, asset.uri, {
+      // iOS hands back HEIC, which browsers can't render. expo-image-picker's
+      // base64 is always JPEG — write it to a temp .jpg and upload that so the
+      // web office can display the evidence too. (RN can't Blob a file uri.)
+      let uploadUri = asset.uri;
+      let contentType = asset.mimeType ?? "image/jpeg";
+      if (asset.base64) {
+        uploadUri = `${cacheDirectory}evidence-${Date.now()}.jpg`;
+        await writeAsStringAsync(uploadUri, asset.base64, { encoding: "base64" });
+        contentType = "image/jpeg";
+      }
+      const up = await uploadAsync(uploadUrl, uploadUri, {
         httpMethod: "POST",
         uploadType: FileSystemUploadType.BINARY_CONTENT,
-        headers: { "Content-Type": asset.mimeType ?? "image/jpeg" },
+        headers: { "Content-Type": contentType },
       });
       const { storageId } = JSON.parse(up.body) as { storageId: Id<"_storage"> };
       const saved = await recordMedia({

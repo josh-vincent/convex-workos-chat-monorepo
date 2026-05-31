@@ -21,6 +21,7 @@ type Response = {
   value?: unknown;
   note?: string;
   flagged?: boolean;
+  mediaIds?: Id<"media">[];
 };
 
 export default function InspectionDetailPage() {
@@ -37,6 +38,24 @@ export default function InspectionDetailPage() {
       map.set(r.questionId, r);
     return map;
   }, [data]);
+
+  // Resolve attached photo evidence to display URLs.
+  const allMediaIds = useMemo(
+    () =>
+      ((data?.inspection.responses ?? []) as Response[]).flatMap(
+        (r) => r.mediaIds ?? [],
+      ),
+    [data],
+  );
+  const mediaUrls = useQuery(
+    api.media.urls,
+    allMediaIds.length ? { ids: allMediaIds } : "skip",
+  );
+  const urlById = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const u of mediaUrls ?? []) m.set(u.mediaId as string, u.url);
+    return m;
+  }, [mediaUrls]);
 
   if (data === undefined) {
     return (
@@ -152,6 +171,35 @@ export default function InspectionDetailPage() {
                       <p className="mt-1 text-xs text-muted-foreground">
                         Note: {r.note}
                       </p>
+                    )}
+                    {r?.mediaIds && r.mediaIds.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {r.mediaIds.map((mid) => {
+                          const url = urlById.get(mid as string);
+                          return url ? (
+                            <a
+                              key={mid}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group relative block"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              {/* biome-ignore lint/performance/noImgElement: external Convex storage URL — next/image would need remote config */}
+                              <img
+                                src={url}
+                                alt="Inspection evidence"
+                                className="h-16 w-16 rounded-md object-cover ring-1 ring-inset ring-border transition group-hover:ring-neutral-400"
+                              />
+                            </a>
+                          ) : (
+                            <div
+                              key={mid}
+                              className="h-16 w-16 animate-pulse rounded-md bg-neutral-100"
+                            />
+                          );
+                        })}
+                      </div>
                     )}
                   </li>
                 );
