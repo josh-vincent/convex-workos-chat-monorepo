@@ -67,6 +67,11 @@ export const start = mutation({
 export const saveResponses = mutation({
   args: { inspectionId: v.id("inspections"), responses: v.array(responseValidator) },
   handler: async (ctx, { inspectionId, responses }) => {
+    const insp = await ctx.db.get(inspectionId);
+    if (!insp) throw new Error("Inspection not found");
+    if (insp.status === "completed" || insp.status === "submitted") {
+      throw new Error("Inspection is locked; create a revision instead.");
+    }
     await ctx.db.patch(inspectionId, { responses });
   },
 });
@@ -213,10 +218,48 @@ export const setAnswer = mutation({
   handler: async (ctx, { inspectionId, questionId, value, note, flagged }) => {
     const insp = await ctx.db.get(inspectionId);
     if (!insp) throw new Error("Inspection not found");
+    if (insp.status === "completed" || insp.status === "submitted") {
+      throw new Error("Inspection is locked; create a revision instead.");
+    }
     const responses = insp.responses.filter((r) => r.questionId !== questionId);
     responses.push({ questionId, value, note, flagged });
     await ctx.db.patch(inspectionId, { responses });
     return { ok: true };
+  },
+});
+
+/**
+ * Revise a completed or submitted inspection — creates a new in_progress copy and
+ * marks the old row with supersededById (append-only, spec §5.2, §10, DoD #2).
+ * Does NOT call complete()/workflow.start/scoreByOrg/scoreBySite.
+ */
+export const revise = mutation({
+  args: { inspectionId: v.id("inspections") },
+  handler: async (ctx, { inspectionId }) => {
+    const insp = await ctx.db.get(inspectionId);
+    if (!insp) throw new Error("Inspection not found");
+    if (insp.status !== "completed" && insp.status !== "submitted") {
+      throw new Error(
+        "Only completed or submitted inspections can be revised; this inspection is still in_progress.",
+      );
+    }
+
+    const newId = await ctx.db.insert("inspections", {
+      orgId: insp.orgId,
+      templateId: insp.templateId,
+      templateVersionId: insp.templateVersionId,
+      version: insp.version,
+      inspectorId: insp.inspectorId,
+      status: "in_progress",
+      startedAt: Date.now(),
+      responses: insp.responses,
+      anchorType: insp.anchorType,
+      anchorId: insp.anchorId,
+    });
+
+    await ctx.db.patch(inspectionId, { supersededById: newId });
+
+    return newId;
   },
 });
 

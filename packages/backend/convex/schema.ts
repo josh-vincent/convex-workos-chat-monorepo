@@ -263,6 +263,9 @@ export default defineSchema({
       ),
     ),
     anchorId: v.optional(v.string()),
+    // Append-only revision chain (spec §5.2, §10, DoD #2).
+    // When an inspection is revised, the OLD row's supersededById is set to the new id.
+    supersededById: v.optional(v.id("inspections")),
   })
     .index("by_org", ["orgId"])
     .index("by_site", ["siteId"])
