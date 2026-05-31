@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useWebAuth } from "@/app/auth-provider";
 
 export default function ChatHeader() {
@@ -11,6 +12,12 @@ export default function ChatHeader() {
         Chat
       </span>
       <div className="flex items-center gap-3">
+        <Link
+          href="/office"
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-[#344054] hover:bg-gray-50"
+        >
+          Office
+        </Link>
         <span className="text-sm text-gray-500">
           {user?.email || user?.name || (isGuest ? "Guest" : "")}
         </span>

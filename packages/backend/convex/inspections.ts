@@ -148,7 +148,10 @@ export const regenerateReport = mutation({
   },
 });
 
-/** List inspections for an org, optionally filtered by status. */
+/**
+ * List inspections for an org (optionally by status), enriched with the template
+ * and inspector names the office table needs — saves N follow-up reads per row.
+ */
 export const list = query({
   args: {
     orgId: v.id("organizations"),
@@ -157,18 +160,31 @@ export const list = query({
     ),
   },
   handler: async (ctx, { orgId, status }) => {
-    if (status) {
-      return await ctx.db
-        .query("inspections")
-        .withIndex("by_org_status", (q) => q.eq("orgId", orgId).eq("status", status))
-        .order("desc")
-        .collect();
-    }
-    return await ctx.db
-      .query("inspections")
-      .withIndex("by_org", (q) => q.eq("orgId", orgId))
-      .order("desc")
-      .collect();
+    const rows = status
+      ? await ctx.db
+          .query("inspections")
+          .withIndex("by_org_status", (q) => q.eq("orgId", orgId).eq("status", status))
+          .order("desc")
+          .collect()
+      : await ctx.db
+          .query("inspections")
+          .withIndex("by_org", (q) => q.eq("orgId", orgId))
+          .order("desc")
+          .collect();
+
+    return await Promise.all(
+      rows.map(async (insp) => {
+        const [template, inspector] = await Promise.all([
+          ctx.db.get(insp.templateId),
+          ctx.db.get(insp.inspectorId),
+        ]);
+        return {
+          ...insp,
+          templateName: template?.name ?? "Inspection",
+          inspectorName: inspector?.name ?? "Unknown",
+        };
+      }),
+    );
   },
 });
 

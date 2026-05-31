@@ -77,16 +77,20 @@ function ToolCall({ part }: { part: UIPart }) {
   );
 }
 
-export default function Chat() {
+export default function Chat({ inspectionId }: { inspectionId?: string }) {
   const { getToken } = useWebAuth();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(
+    inspectionId ? "Please fill out and complete this inspection." : "",
+  );
 
   // Stream from the authenticated Convex /chat action (same endpoint as native),
-  // attaching the current WorkOS or guest token on every request.
+  // attaching the current WorkOS or guest token on every request. When an
+  // inspection is active, the server fills/completes it via tools.
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: `${convexSiteUrl()}/chat`,
+        body: inspectionId ? { inspectionId } : undefined,
         fetch: (async (url: RequestInfo | URL, opts?: RequestInit) => {
           const token = await getToken();
           return fetch(url, {
@@ -98,7 +102,7 @@ export default function Chat() {
           });
         }) as typeof fetch,
       }),
-    [getToken],
+    [getToken, inspectionId],
   );
 
   const { messages, sendMessage, status } = useChat({ transport });
