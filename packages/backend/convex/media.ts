@@ -27,27 +27,46 @@ export const record = mutation({
     orgId: v.id("organizations"),
     storageId: v.id("_storage"),
     kind: v.optional(KIND),
+    name: v.optional(v.string()),
   },
-  handler: async (ctx, { orgId, storageId, kind }) => {
+  handler: async (ctx, { orgId, storageId, kind, name }) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
+    const resolvedKind = kind ?? "photo";
     const mediaId = await ctx.db.insert("media", {
       orgId,
       storageId,
-      kind: kind ?? "photo",
+      kind: resolvedKind,
+      name,
     });
-    return { mediaId, url: await ctx.storage.getUrl(storageId) };
+    return {
+      mediaId,
+      url: await ctx.storage.getUrl(storageId),
+      kind: resolvedKind,
+      name: name ?? null,
+    };
   },
 });
 
-/** Resolve a set of media ids to current display URLs (for rendering thumbnails). */
+/** Resolve media ids to display URLs + kind/name (thumbnails for photos, chips for docs). */
 export const urls = query({
   args: { ids: v.array(v.id("media")) },
   handler: async (ctx, { ids }) => {
-    const out: { mediaId: (typeof ids)[number]; url: string | null }[] = [];
+    const out: {
+      mediaId: (typeof ids)[number];
+      url: string | null;
+      kind: string;
+      name: string | null;
+    }[] = [];
     for (const id of ids) {
       const m = await ctx.db.get(id);
-      if (m) out.push({ mediaId: id, url: await ctx.storage.getUrl(m.storageId) });
+      if (m)
+        out.push({
+          mediaId: id,
+          url: await ctx.storage.getUrl(m.storageId),
+          kind: m.kind,
+          name: m.name ?? null,
+        });
     }
     return out;
   },

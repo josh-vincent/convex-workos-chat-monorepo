@@ -33,6 +33,7 @@
     "expo-blur": "~56.0.3",
     "expo-constants": "~56.0.14",
     "expo-dev-client": "~56.0.14",
+    "expo-document-picker": "~56.0.4",
     "expo-file-system": "~56.0.7",
     "expo-font": "~56.0.5",
     "expo-glass-effect": "~56.0.4",

@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@packages/backend/convex/_generated/api";
 import type { Id } from "@packages/backend/convex/_generated/dataModel";
-import { ChevronLeft, Sparkles } from "lucide-react";
+import { ChevronLeft, FileText, Sparkles } from "lucide-react";
 import {
   ScoreBadge,
   StatusPill,
@@ -51,9 +51,13 @@ export default function InspectionDetailPage() {
     api.media.urls,
     allMediaIds.length ? { ids: allMediaIds } : "skip",
   );
-  const urlById = useMemo(() => {
-    const m = new Map<string, string | null>();
-    for (const u of mediaUrls ?? []) m.set(u.mediaId as string, u.url);
+  const mediaById = useMemo(() => {
+    const m = new Map<
+      string,
+      { url: string | null; kind: string; name: string | null }
+    >();
+    for (const u of mediaUrls ?? [])
+      m.set(u.mediaId as string, { url: u.url, kind: u.kind, name: u.name });
     return m;
   }, [mediaUrls]);
 
@@ -173,13 +177,37 @@ export default function InspectionDetailPage() {
                       </p>
                     )}
                     {r?.mediaIds && r.mediaIds.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         {r.mediaIds.map((mid) => {
-                          const url = urlById.get(mid as string);
-                          return url ? (
+                          const m = mediaById.get(mid as string);
+                          if (!m) {
+                            return (
+                              <div
+                                key={mid}
+                                className="h-16 w-16 animate-pulse rounded-md bg-neutral-100"
+                              />
+                            );
+                          }
+                          if (m.kind === "doc") {
+                            return (
+                              <a
+                                key={mid}
+                                href={m.url ?? "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex max-w-[16rem] items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50"
+                              >
+                                <FileText className="h-4 w-4 shrink-0 text-neutral-500" />
+                                <span className="truncate">
+                                  {m.name ?? "Document"}
+                                </span>
+                              </a>
+                            );
+                          }
+                          return (
                             <a
                               key={mid}
-                              href={url}
+                              href={m.url ?? "#"}
                               target="_blank"
                               rel="noreferrer"
                               className="group relative block"
@@ -187,16 +215,11 @@ export default function InspectionDetailPage() {
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               {/* biome-ignore lint/performance/noImgElement: external Convex storage URL — next/image would need remote config */}
                               <img
-                                src={url}
+                                src={m.url ?? ""}
                                 alt="Inspection evidence"
                                 className="h-16 w-16 rounded-md object-cover ring-1 ring-inset ring-border transition group-hover:ring-neutral-400"
                               />
                             </a>
-                          ) : (
-                            <div
-                              key={mid}
-                              className="h-16 w-16 animate-pulse rounded-md bg-neutral-100"
-                            />
                           );
                         })}
                       </div>

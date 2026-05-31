@@ -10,6 +10,7 @@ import { Icon } from "@/components/icon";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, Sparkles } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import {
   uploadAsync,
   FileSystemUploadType,
@@ -42,17 +43,18 @@ export default function InspectionRunner() {
   const recordMedia = useMutation(api.media.record);
 
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, Attachment[]>>(
     {},
   );
   const [uploading, setUploading] = useState<string | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ score?: number; actions: number } | null>(
     null,
   );
   const seeded = useRef(false);
 
-  // Resolve any previously-attached media to display URLs (for re-opened inspections).
   const savedMediaIds = useMemo(
     () =>
       (data?.inspection.responses ?? []).flatMap(
@@ -69,21 +71,29 @@ export default function InspectionRunner() {
     if (data?.inspection && !seeded.current) {
       seeded.current = true;
       const initAns: Record<string, unknown> = {};
-      const urlById = new Map(
-        (mediaUrls ?? []).map((m) => [m.mediaId as string, m.url]),
+      const initNotes: Record<string, string> = {};
+      const byId = new Map(
+        (mediaUrls ?? []).map((m) => [m.mediaId as string, m]),
       );
       const initAtt: Record<string, Attachment[]> = {};
       for (const r of data.inspection.responses) {
         initAns[r.questionId] = r.value;
+        if (r.note) initNotes[r.questionId] = r.note;
         const ids = (r.mediaIds ?? []) as Id<"media">[];
         if (ids.length) {
-          initAtt[r.questionId] = ids.map((mid) => ({
-            mediaId: mid as string,
-            url: urlById.get(mid as string) ?? null,
-          }));
+          initAtt[r.questionId] = ids.map((mid) => {
+            const m = byId.get(mid as string);
+            return {
+              mediaId: mid as string,
+              url: m?.url ?? null,
+              kind: m?.kind,
+              name: m?.name,
+            };
+          });
         }
       }
       setAnswers(initAns);
+      setNotes(initNotes);
       setAttachments(initAtt);
     }
   }, [data, mediaUrls]);
@@ -106,11 +116,13 @@ export default function InspectionRunner() {
   const persist = () => {
     const ids = new Set([
       ...Object.keys(answers),
+      ...Object.keys(notes),
       ...Object.keys(attachments),
     ]);
     const responses = [...ids].map((questionId) => ({
       questionId,
       value: answers[questionId],
+      note: notes[questionId]?.trim() || undefined,
       mediaIds: (attachments[questionId] ?? []).map(
         (a) => a.mediaId as Id<"media">,
       ),
@@ -118,8 +130,14 @@ export default function InspectionRunner() {
     return save({ inspectionId, responses });
   };
 
-  // Pick a photo → upload to Convex storage → attach mediaId to this question.
-  const attach = async (questionId: string) => {
+  const addAttachment = (questionId: string, att: Attachment) =>
+    setAttachments((a) => ({
+      ...a,
+      [questionId]: [...(a[questionId] ?? []), att],
+    }));
+
+  // Photo: iOS gives HEIC; expo-image-picker's base64 is JPEG, so re-encode for the web.
+  const attachPhoto = async (questionId: string) => {
     if (uploading || !data) return;
     const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
@@ -130,44 +148,79 @@ export default function InspectionRunner() {
     const asset = picked.assets[0];
     setUploading(questionId);
     try {
-      const uploadUrl = await generateUploadUrl();
-      // iOS hands back HEIC, which browsers can't render. expo-image-picker's
-      // base64 is always JPEG — write it to a temp .jpg and upload that so the
-      // web office can display the evidence too. (RN can't Blob a file uri.)
-      let uploadUri = asset.uri;
+      let uri = asset.uri;
       let contentType = asset.mimeType ?? "image/jpeg";
       if (asset.base64) {
-        uploadUri = `${cacheDirectory}evidence-${Date.now()}.jpg`;
-        await writeAsStringAsync(uploadUri, asset.base64, { encoding: "base64" });
+        uri = `${cacheDirectory}evidence-${Date.now()}.jpg`;
+        await writeAsStringAsync(uri, asset.base64, { encoding: "base64" });
         contentType = "image/jpeg";
       }
-      const up = await uploadAsync(uploadUrl, uploadUri, {
-        httpMethod: "POST",
-        uploadType: FileSystemUploadType.BINARY_CONTENT,
-        headers: { "Content-Type": contentType },
-      });
-      const { storageId } = JSON.parse(up.body) as { storageId: Id<"_storage"> };
-      const saved = await recordMedia({
-        orgId: data.inspection.orgId,
-        storageId,
-        kind: "photo",
-      });
-      setAttachments((a) => ({
-        ...a,
-        [questionId]: [
-          ...(a[questionId] ?? []),
-          { mediaId: saved.mediaId as string, url: saved.url },
-        ],
-      }));
+      const saved = await upload(uri, contentType, "photo");
+      addAttachment(questionId, { ...saved, kind: "photo" });
     } catch (e) {
-      Alert.alert(
-        "Upload failed",
-        e instanceof Error ? e.message : "Could not attach the photo.",
-      );
+      uploadError(e);
     } finally {
       setUploading(null);
     }
   };
+
+  // Paperwork: any document (PDF, etc.) → uploaded as-is, shown as a file chip.
+  const attachDoc = async (questionId: string) => {
+    if (uploadingDoc || !data) return;
+    const picked = await DocumentPicker.getDocumentAsync({
+      type: "*/*",
+      copyToCacheDirectory: true,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    const asset = picked.assets[0];
+    setUploadingDoc(questionId);
+    try {
+      const saved = await upload(
+        asset.uri,
+        asset.mimeType ?? "application/octet-stream",
+        "doc",
+        asset.name,
+      );
+      addAttachment(questionId, { ...saved, kind: "doc", name: asset.name });
+    } catch (e) {
+      uploadError(e);
+    } finally {
+      setUploadingDoc(null);
+    }
+  };
+
+  const upload = async (
+    uri: string,
+    contentType: string,
+    kind: "photo" | "doc",
+    name?: string,
+  ) => {
+    if (!data) throw new Error("Inspection not loaded");
+    const uploadUrl = await generateUploadUrl();
+    const up = await uploadAsync(uploadUrl, uri, {
+      httpMethod: "POST",
+      uploadType: FileSystemUploadType.BINARY_CONTENT,
+      headers: { "Content-Type": contentType },
+    });
+    const { storageId } = JSON.parse(up.body) as { storageId: Id<"_storage"> };
+    const saved = await recordMedia({
+      orgId: data.inspection.orgId,
+      storageId,
+      kind,
+      name,
+    });
+    return {
+      mediaId: saved.mediaId as string,
+      url: saved.url,
+      name: saved.name,
+    };
+  };
+
+  const uploadError = (e: unknown) =>
+    Alert.alert(
+      "Upload failed",
+      e instanceof Error ? e.message : "Could not attach the file.",
+    );
 
   const removeAttachment = (questionId: string, mediaId: string) =>
     setAttachments((a) => ({
@@ -175,7 +228,30 @@ export default function InspectionRunner() {
       [questionId]: (a[questionId] ?? []).filter((m) => m.mediaId !== mediaId),
     }));
 
+  // Items that can't be submitted yet: a fail/required note without a note, or
+  // required evidence with nothing attached.
+  const outstanding = useMemo(() => {
+    const out: string[] = [];
+    for (const s of sections) {
+      for (const q of s.questions) {
+        if (q.type === "instruction") continue;
+        const noteReq = q.requireNote || answers[q.id] === "fail";
+        if (noteReq && !notes[q.id]?.trim()) out.push(`${q.label} — needs a note`);
+        if (q.requirePhoto && (attachments[q.id] ?? []).length === 0)
+          out.push(`${q.label} — needs evidence`);
+      }
+    }
+    return out;
+  }, [sections, answers, notes, attachments]);
+
   const onComplete = async () => {
+    if (outstanding.length > 0) {
+      Alert.alert(
+        "Not ready to submit",
+        `${outstanding.length} item${outstanding.length > 1 ? "s need" : " needs"} attention:\n\n• ${outstanding.slice(0, 6).join("\n• ")}`,
+      );
+      return;
+    }
     setBusy(true);
     try {
       await persist();
@@ -215,7 +291,6 @@ export default function InspectionRunner() {
 
   return (
     <View className="flex-1 bg-background">
-      {/* Field-instrument header: back · title · progress rail */}
       <View
         className="border-b-2 border-border bg-card"
         style={{ paddingTop: insets.top }}
@@ -297,9 +372,13 @@ export default function InspectionRunner() {
                 question={q}
                 value={answers[q.id]}
                 onChange={(v) => setAnswers((a) => ({ ...a, [q.id]: v }))}
+                note={notes[q.id]}
+                onNote={(t) => setNotes((n) => ({ ...n, [q.id]: t }))}
                 attachments={attachments[q.id] ?? []}
                 attaching={uploading === q.id}
-                onAttach={() => attach(q.id)}
+                attachingDoc={uploadingDoc === q.id}
+                onAttachPhoto={() => attachPhoto(q.id)}
+                onAttachDoc={() => attachDoc(q.id)}
                 onRemove={(mid) => removeAttachment(q.id, mid)}
               />
             ))}

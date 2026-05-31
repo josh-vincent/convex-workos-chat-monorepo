@@ -67,6 +67,8 @@ export const question = v.object({
   weight: v.optional(v.number()), // scoring weight (default 1)
   visibleWhen: v.optional(visibleWhen),
   triggersActionOnFail: v.optional(v.boolean()), // auto-create a corrective action on fail
+  requireNote: v.optional(v.boolean()), // a written note is mandatory to complete
+  requirePhoto: v.optional(v.boolean()), // photo/document evidence is mandatory to complete
 });
 
 export const section = v.object({
@@ -365,6 +367,7 @@ export default defineSchema({
       v.literal("signature"),
       v.literal("doc"),
     ),
+    name: v.optional(v.string()), // original filename (for document chips)
     uploadedBy: v.optional(v.id("users")),
   }).index("by_org", ["orgId"]),
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -6,7 +7,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Camera, X } from "lucide-react-native";
+import { Camera, FileText, Paperclip, StickyNote, X } from "lucide-react-native";
 import { Icon } from "@/components/icon";
 
 export type Question = {
@@ -14,6 +15,8 @@ export type Question = {
   label: string;
   type: string;
   required?: boolean;
+  requireNote?: boolean;
+  requirePhoto?: boolean;
   helpText?: string;
   options?: { label: string; flag?: boolean }[];
   min?: number;
@@ -21,21 +24,33 @@ export type Question = {
   unit?: string;
 };
 
-export type Attachment = { mediaId: string; url: string | null };
+export type Attachment = {
+  mediaId: string;
+  url: string | null;
+  kind?: string;
+  name?: string | null;
+};
 
 type Props = {
   question: Question;
   value: unknown;
   onChange: (value: unknown) => void;
+  note?: string;
+  onNote?: (text: string) => void;
   attachments?: Attachment[];
   attaching?: boolean;
-  onAttach?: () => void;
+  attachingDoc?: boolean;
+  onAttachPhoto?: () => void;
+  onAttachDoc?: () => void;
   onRemove?: (mediaId: string) => void;
 };
 
 type Tone = "pass" | "fail" | "neutral";
 
-/** Field-instrument segmented control — full-width cells, big targets, one bar. */
+const PLACEHOLDER = "oklch(0.6 0.01 80)";
+const INPUT =
+  "rounded-xl border-2 border-border bg-card px-3.5 py-3 font-body text-[16px] text-foreground";
+
 function Segmented({
   cells,
   value,
@@ -116,29 +131,38 @@ function OptionPill({
   );
 }
 
-/** Compact inline camera button — lives in the question's label row (no extra height). */
-function AttachButton({
+/** Compact inline icon button for the label row (note / camera / file). */
+function IconButton({
+  icon,
   count,
-  attaching,
-  onAttach,
+  busy,
+  active,
+  onPress,
 }: {
-  count: number;
-  attaching?: boolean;
-  onAttach: () => void;
+  icon: typeof Camera;
+  count?: number;
+  busy?: boolean;
+  active?: boolean;
+  onPress: () => void;
 }) {
   return (
     <Pressable
-      onPress={onAttach}
-      disabled={attaching}
-      hitSlop={8}
-      className="-mt-0.5 h-8 flex-row items-center gap-1 rounded-lg border border-border bg-card px-2.5 active:bg-muted"
+      onPress={onPress}
+      disabled={busy}
+      hitSlop={6}
+      className={`-mt-0.5 h-8 flex-row items-center gap-1 rounded-lg border px-2.5 active:bg-muted ${
+        active ? "border-hivis bg-hivis/10" : "border-border bg-card"
+      }`}
     >
-      {attaching ? (
+      {busy ? (
         <ActivityIndicator size="small" />
       ) : (
-        <Icon icon={Camera} className="h-4 w-4 text-muted-foreground" />
+        <Icon
+          icon={icon}
+          className={`h-4 w-4 ${active ? "text-hivis" : "text-muted-foreground"}`}
+        />
       )}
-      {count > 0 ? (
+      {count ? (
         <Text className="font-body-semibold text-[12px] tabular-nums text-foreground">
           {count}
         </Text>
@@ -147,17 +171,16 @@ function AttachButton({
   );
 }
 
-/** Small thumbnail strip — only rendered when there's evidence to show. */
 function Thumbnails({
-  attachments,
+  photos,
   onRemove,
 }: {
-  attachments: Attachment[];
-  onRemove: (mediaId: string) => void;
+  photos: Attachment[];
+  onRemove: (id: string) => void;
 }) {
   return (
     <View className="mt-2 flex-row flex-wrap gap-2">
-      {attachments.map((a) => (
+      {photos.map((a) => (
         <View key={a.mediaId} className="relative">
           {a.url ? (
             <Image
@@ -180,19 +203,52 @@ function Thumbnails({
   );
 }
 
-const INPUT =
-  "rounded-xl border-2 border-border bg-card px-3.5 py-3 font-body text-[16px] text-foreground";
-const PLACEHOLDER = "oklch(0.6 0.01 80)";
+function DocChips({
+  docs,
+  onRemove,
+}: {
+  docs: Attachment[];
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <View className="mt-2 gap-1.5">
+      {docs.map((a) => (
+        <View
+          key={a.mediaId}
+          className="flex-row items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2"
+        >
+          <Icon icon={FileText} className="h-4 w-4 text-muted-foreground" />
+          <Text
+            className="flex-1 font-body-medium text-[13px] text-foreground"
+            numberOfLines={1}
+          >
+            {a.name ?? "Document"}
+          </Text>
+          <Pressable onPress={() => onRemove(a.mediaId)} hitSlop={6}>
+            <Icon icon={X} className="h-4 w-4 text-muted-foreground" />
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export function QuestionField({
   question: q,
   value,
   onChange,
+  note,
+  onNote,
   attachments = [],
   attaching,
-  onAttach,
+  attachingDoc,
+  onAttachPhoto,
+  onAttachDoc,
   onRemove,
 }: Props) {
+  const [noteOpen, setNoteOpen] = useState(false);
+  const remove = onRemove ?? (() => {});
+
   if (q.type === "instruction") {
     return (
       <View className="mb-5 rounded-xl bg-muted px-4 py-3">
@@ -210,6 +266,15 @@ export function QuestionField({
 
   const numeric =
     q.type === "number" || q.type === "temperature" || q.type === "slider";
+  const photos = attachments.filter((a) => a.kind !== "doc");
+  const docs = attachments.filter((a) => a.kind === "doc");
+
+  // A failed item must be explained; templates can also force a note/evidence.
+  const noteRequired = !!q.requireNote || value === "fail";
+  const photoRequired = !!q.requirePhoto;
+  const showNote = noteOpen || !!note || noteRequired;
+  const noteMissing = noteRequired && !note?.trim();
+  const photoMissing = photoRequired && attachments.length === 0;
 
   return (
     <View className="mb-6">
@@ -218,13 +283,32 @@ export function QuestionField({
           {q.label}
           {q.required ? <Text className="text-hivis"> *</Text> : null}
         </Text>
-        {onAttach ? (
-          <AttachButton
-            count={attachments.length}
-            attaching={attaching}
-            onAttach={onAttach}
-          />
-        ) : null}
+        <View className="flex-row gap-1.5">
+          {onNote ? (
+            <IconButton
+              icon={StickyNote}
+              active={!!note?.trim() || noteMissing}
+              onPress={() => setNoteOpen((o) => !o)}
+            />
+          ) : null}
+          {onAttachPhoto ? (
+            <IconButton
+              icon={Camera}
+              count={photos.length}
+              busy={attaching}
+              onPress={onAttachPhoto}
+            />
+          ) : null}
+          {onAttachDoc ? (
+            <IconButton
+              icon={Paperclip}
+              count={docs.length}
+              busy={attachingDoc}
+              active={photoMissing}
+              onPress={onAttachDoc}
+            />
+          ) : null}
+        </View>
       </View>
 
       {q.type === "passFailNA" || q.type === "question" ? (
@@ -238,7 +322,6 @@ export function QuestionField({
           onChange={onChange}
         />
       ) : q.type === "checkbox" ? (
-        // Boolean → a clean Yes / No toggle (true / false).
         <Segmented
           cells={[
             { value: "yes", label: "Yes", tone: "pass" },
@@ -297,15 +380,37 @@ export function QuestionField({
           className={`min-h-14 ${INPUT}`}
         />
       ) : (
-        // signature / photo / media / drawing — the camera button above is the control
         <Text className="font-body text-[13px] text-muted-foreground">
-          Attach a photo with the camera.
+          Attach a photo or document above.
         </Text>
       )}
 
-      {attachments.length > 0 ? (
-        <Thumbnails attachments={attachments} onRemove={onRemove ?? (() => {})} />
+      {/* Inline note — auto-shown when an answer fails or a note is required */}
+      {onNote && showNote ? (
+        <View className="mt-2">
+          <TextInput
+            multiline
+            value={note ?? ""}
+            onChangeText={onNote}
+            placeholder={
+              noteRequired ? "Add a note (required)…" : "Add a note…"
+            }
+            placeholderTextColor={PLACEHOLDER}
+            className={`min-h-12 rounded-xl border-2 bg-card px-3.5 py-2.5 font-body text-[15px] text-foreground ${
+              noteMissing ? "border-fail" : "border-border"
+            }`}
+          />
+        </View>
       ) : null}
+
+      {photoMissing ? (
+        <Text className="mt-1.5 font-body-medium text-[12px] text-hivis">
+          Evidence required — attach a photo or document.
+        </Text>
+      ) : null}
+
+      {photos.length > 0 ? <Thumbnails photos={photos} onRemove={remove} /> : null}
+      {docs.length > 0 ? <DocChips docs={docs} onRemove={remove} /> : null}
 
       {q.helpText ? (
         <Text className="mt-2 font-body text-[13px] leading-4 text-muted-foreground">
