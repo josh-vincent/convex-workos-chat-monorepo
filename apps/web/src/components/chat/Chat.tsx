@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import { Check, X } from "lucide-react";
 import { useWebAuth, convexSiteUrl } from "@/app/auth-provider";
 import { MemoizedMarkdown } from "@/components/chat/memoized-markdown";
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text";
@@ -23,56 +24,109 @@ function isToolPart(part: UIPart): boolean {
 type ToolView = {
   name: string;
   state: string;
-  input?: unknown;
-  output?: unknown;
+  input?: Record<string, unknown>;
+  output?: Record<string, unknown>;
   errorText?: string;
 };
 
-const TOOL_STATE: Record<string, { label: string; cls: string; busy: boolean }> = {
-  "input-streaming": { label: "Preparing", cls: "bg-amber-100 text-amber-700", busy: true },
-  "input-available": { label: "Running", cls: "bg-blue-100 text-blue-700", busy: true },
-  "output-available": { label: "Done", cls: "bg-green-100 text-green-700", busy: false },
-  "output-error": { label: "Error", cls: "bg-red-100 text-red-700", busy: false },
-};
+/** A boolean-ish answer rendered as a ✓/✗ toggle; anything else as plain text. */
+function ValueChip({ value }: { value: unknown }) {
+  if (value === undefined || value === null || value === "") return null;
+  const s = String(value).toLowerCase();
+  const truthy = value === true || ["pass", "yes", "true", "ok"].includes(s);
+  const falsy = value === false || ["fail", "no", "false"].includes(s);
+  const na = s === "na" || s === "n/a";
+
+  if (truthy || falsy) {
+    const label = value === true ? "Yes" : value === false ? "No" : String(value);
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[12px] font-medium capitalize ${
+          truthy ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+        }`}
+      >
+        {truthy ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-md bg-neutral-100 px-2 py-0.5 text-[12px] font-medium text-neutral-700">
+      {na ? "N/A" : String(value)}
+    </span>
+  );
+}
+
+/** Turn a raw tool part into a plain-language command + optional trailing detail/value. */
+function describeTool(name: string, input: Record<string, unknown>, output: Record<string, unknown>) {
+  switch (name) {
+    case "getInspectionForm": {
+      const n =
+        typeof output.questions === "number"
+          ? output.questions
+          : Array.isArray(output.sections)
+            ? (output.sections as { questions?: unknown[] }[]).reduce(
+                (a, s) => a + (s.questions?.length ?? 0),
+                0,
+              )
+            : undefined;
+      return { title: "Read the inspection form", detail: n ? `${n} questions` : undefined };
+    }
+    case "setAnswer":
+      return {
+        title: String(input.label ?? input.questionId ?? "Set answer"),
+        value: input.value,
+      };
+    case "completeInspection": {
+      const score = output.score;
+      const actions = output.actionsCreated;
+      return {
+        title: "Complete inspection",
+        detail:
+          typeof score === "number"
+            ? `Scored ${score}%${typeof actions === "number" ? ` · ${actions} actions` : ""}`
+            : undefined,
+      };
+    }
+    case "getWeather":
+      return { title: "Check the weather", detail: input.location ? String(input.location) : undefined };
+    default:
+      return { title: name };
+  }
+}
 
 function ToolCall({ part }: { part: UIPart }) {
   const p = part as unknown as ToolView & { type: string };
   const name = p.name ?? p.type.replace(/^tool-/, "") ?? "tool";
-  const meta = TOOL_STATE[p.state] ?? {
-    label: p.state,
-    cls: "bg-gray-100 text-gray-700",
-    busy: false,
-  };
+  const busy = p.state === "input-streaming" || p.state === "input-available";
+  const error = p.state === "output-error";
+  const { title, detail, value } = describeTool(name, p.input ?? {}, p.output ?? {});
 
   return (
-    <div className="overflow-hidden rounded-lg border border-black/10 bg-gray-50">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span className="text-[13px] font-medium">🛠 {name}</span>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] ${meta.cls}`}>
-          {meta.busy ? (
-            <AnimatedShinyText className="text-inherit">
-              {meta.label}…
-            </AnimatedShinyText>
-          ) : (
-            meta.label
-          )}
+    <div className="flex items-center gap-3 rounded-lg border border-black/10 bg-white px-3.5 py-2.5">
+      {busy ? (
+        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-400" />
+      ) : (
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${error ? "bg-rose-500" : "bg-emerald-500"}`}
+        />
+      )}
+      <span className="flex-1 truncate text-[14px] font-medium text-[#2D2D2D]">
+        {busy ? (
+          <AnimatedShinyText className="text-inherit">{title}…</AnimatedShinyText>
+        ) : (
+          title
+        )}
+      </span>
+      {error ? (
+        <span className="truncate text-[12px] font-medium text-rose-600">
+          {p.errorText ?? "Failed"}
         </span>
-      </div>
-      {p.input != null && (
-        <pre className="overflow-x-auto border-t border-black/5 px-3 py-2 text-[12px] text-gray-600">
-          {JSON.stringify(p.input, null, 2)}
-        </pre>
-      )}
-      {p.state === "output-available" && p.output != null && (
-        <pre className="overflow-x-auto border-t border-black/5 bg-green-50/50 px-3 py-2 text-[12px] text-gray-700">
-          {JSON.stringify(p.output, null, 2)}
-        </pre>
-      )}
-      {p.state === "output-error" && (
-        <div className="border-t border-black/5 bg-red-50/50 px-3 py-2 text-[12px] text-red-600">
-          {p.errorText ?? "Tool error"}
-        </div>
-      )}
+      ) : value !== undefined ? (
+        <ValueChip value={value} />
+      ) : detail ? (
+        <span className="truncate text-[12px] font-medium text-gray-500">{detail}</span>
+      ) : null}
     </div>
   );
 }

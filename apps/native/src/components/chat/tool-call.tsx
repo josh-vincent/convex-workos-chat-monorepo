@@ -1,70 +1,135 @@
-import { Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
+import { Check, X } from "lucide-react-native";
+import { Icon } from "@/components/icon";
 import type { ChatToolPart } from "./types";
 
-// Static class strings so uniwind can extract them.
-const STATES: Record<
-  string,
-  { label: string; badge: string; text: string; busy: boolean }
-> = {
-  "input-streaming": {
-    label: "Preparing",
-    badge: "bg-amber-100",
-    text: "text-amber-700",
-    busy: true,
-  },
-  "input-available": {
-    label: "Running",
-    badge: "bg-blue-100",
-    text: "text-blue-700",
-    busy: true,
-  },
-  "output-available": {
-    label: "Done",
-    badge: "bg-green-100",
-    text: "text-green-700",
-    busy: false,
-  },
-  "output-error": {
-    label: "Error",
-    badge: "bg-red-100",
-    text: "text-red-700",
-    busy: false,
-  },
-};
+type Rec = Record<string, unknown>;
+
+/** A boolean-ish answer rendered as a ✓/✗ toggle; anything else as plain text. */
+function valueChip(value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+  const s = String(value).toLowerCase();
+  const truthy = value === true || ["pass", "yes", "true", "ok"].includes(s);
+  const falsy = value === false || ["fail", "no", "false"].includes(s);
+  const na = s === "na" || s === "n/a";
+
+  if (truthy || falsy) {
+    const label =
+      value === true ? "Yes" : value === false ? "No" : String(value);
+    return (
+      <View
+        className={`flex-row items-center gap-1 rounded-md px-2 py-1 ${
+          truthy ? "bg-pass/15" : "bg-fail/15"
+        }`}
+      >
+        <Icon
+          icon={truthy ? Check : X}
+          className={`h-3.5 w-3.5 ${truthy ? "text-pass" : "text-fail"}`}
+        />
+        <Text
+          className={`font-body-medium text-[12px] capitalize ${
+            truthy ? "text-pass" : "text-fail"
+          }`}
+        >
+          {label}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View className="rounded-md bg-muted px-2 py-1">
+      <Text className="font-body-medium text-[12px] text-foreground" numberOfLines={1}>
+        {na ? "N/A" : String(value)}
+      </Text>
+    </View>
+  );
+}
+
+/** Turn a raw tool part into a plain-language command + optional trailing detail. */
+function describe(tool: ChatToolPart): {
+  title: string;
+  detail?: string;
+  value?: unknown;
+} {
+  const input = (tool.input ?? {}) as Rec;
+  const output = (tool.output ?? {}) as Rec;
+  switch (tool.name) {
+    case "getInspectionForm": {
+      const n =
+        typeof output.questions === "number"
+          ? output.questions
+          : Array.isArray(output.sections)
+            ? (output.sections as { questions?: unknown[] }[]).reduce(
+                (a, s) => a + (s.questions?.length ?? 0),
+                0,
+              )
+            : undefined;
+      return { title: "Read the inspection form", detail: n ? `${n} questions` : undefined };
+    }
+    case "setAnswer":
+      return {
+        title: String(input.label ?? input.questionId ?? "Set answer"),
+        value: input.value,
+      };
+    case "completeInspection": {
+      const score = output.score;
+      const actions = output.actionsCreated;
+      return {
+        title: "Complete inspection",
+        detail:
+          typeof score === "number"
+            ? `Scored ${score}%${typeof actions === "number" ? ` · ${actions} actions` : ""}`
+            : undefined,
+      };
+    }
+    case "getWeather":
+      return {
+        title: "Check the weather",
+        detail: input.location ? String(input.location) : undefined,
+      };
+    default:
+      return { title: tool.name };
+  }
+}
 
 export function ToolCall({ tool }: { tool: ChatToolPart }) {
-  const s = STATES[tool.state] ?? {
-    label: tool.state || "tool",
-    badge: "bg-muted",
-    text: "text-muted-foreground",
-    busy: false,
-  };
+  const busy =
+    tool.state === "input-streaming" || tool.state === "input-available";
+  const error = tool.state === "output-error";
+  const { title, detail, value } = describe(tool);
 
   return (
-    <View className="mb-2 overflow-hidden rounded-xl border border-border bg-card">
-      <View className="flex-row items-center gap-2 px-3 py-2">
-        <Text className="text-[13px] font-medium text-foreground">{`🛠 ${tool.name}`}</Text>
-        <View className={`rounded-full px-2 py-0.5 ${s.badge}`}>
-          <Text className={`text-[11px] ${s.text}`}>
-            {s.busy ? `${s.label}…` : s.label}
-          </Text>
-        </View>
-      </View>
-      {tool.input != null && (
-        <Text className="border-t border-border px-3 py-2 text-[12px] text-muted-foreground">
-          {JSON.stringify(tool.input, null, 2)}
-        </Text>
+    <View className="mb-2 flex-row items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3">
+      {/* Status lamp — amber while running, green done, red error */}
+      {busy ? (
+        <ActivityIndicator size="small" />
+      ) : (
+        <View
+          className={`h-2 w-2 rounded-full ${error ? "bg-fail" : "bg-pass"}`}
+        />
       )}
-      {tool.state === "output-available" && tool.output != null && (
-        <Text className="border-t border-border px-3 py-2 text-[12px] text-foreground">
-          {JSON.stringify(tool.output, null, 2)}
+
+      <Text
+        className="flex-1 font-body-medium text-[14px] text-foreground"
+        numberOfLines={1}
+      >
+        {title}
+      </Text>
+
+      {error ? (
+        <Text className="font-body-medium text-[12px] text-fail" numberOfLines={1}>
+          {tool.errorText ?? "Failed"}
         </Text>
-      )}
-      {tool.state === "output-error" && (
-        <Text className="border-t border-border px-3 py-2 text-[12px] text-red-600">
-          {tool.errorText ?? "Tool error"}
+      ) : value !== undefined ? (
+        valueChip(value)
+      ) : detail ? (
+        <Text
+          className="font-body-medium text-[12px] text-muted-foreground"
+          numberOfLines={1}
+        >
+          {detail}
         </Text>
-      )}
+      ) : null}
     </View>
   );
 }
