@@ -7,7 +7,8 @@
     "setup": "convex dev --until-success",
     "setup:mock-auth": "node scripts/setup-mock-auth.mjs",
     "seed": "convex run seed:seedAll",
-    "typecheck": "tsc --noEmit -p convex"
+    "typecheck": "tsc --noEmit -p convex",
+    "test": "vitest run"
   },
   "author": "",
   "license": "ISC",
@@ -24,8 +25,11 @@
     "zod": "^4.4.1"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.0",
-    "typescript": "6.0.3"
+    "convex-test": "^0.0.53",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.7"
   }
 }
