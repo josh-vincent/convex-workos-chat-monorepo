@@ -239,6 +239,7 @@ export default defineSchema({
     assetId: v.optional(v.id("assets")),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    dueAt: v.optional(v.number()),
     // Generated PDF report (see convex/reports.ts) — file storage id + its media row.
     reportStorageId: v.optional(v.id("_storage")),
     reportMediaId: v.optional(v.id("media")),
@@ -596,4 +597,37 @@ export default defineSchema({
   })
     .index("by_org", ["orgId"])
     .index("by_anchor", ["anchorType", "anchorId"]),
+
+  // =========================================================================
+  // ALERTS — spec §6, DoD #5
+  // Daily currency sweep raises alerts for expiring/expired/review_due entries
+  // and overdue inspections. Status is stored (open → acknowledged → resolved).
+  // =========================================================================
+  alerts: defineTable({
+    orgId: v.id("organizations"),
+    kind: v.union(
+      v.literal("expiring_soon"),
+      v.literal("expired"),
+      v.literal("overdue"),
+      v.literal("review_due"),
+    ),
+    severity: v.union(
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+      v.literal("critical"),
+    ),
+    registerEntryId: v.optional(v.id("registerEntries")),
+    inspectionId: v.optional(v.id("inspections")),
+    message: v.string(),
+    status: v.union(
+      v.literal("open"),
+      v.literal("acknowledged"),
+      v.literal("resolved"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_org", ["orgId"])
+    .index("by_entry_kind", ["registerEntryId", "kind"])
+    .index("by_inspection_kind", ["inspectionId", "kind"]),
 });
