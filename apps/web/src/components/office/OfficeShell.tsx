@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardCheck, FileText, MessageSquare, ShieldCheck } from "lucide-react";
+import { Activity, ClipboardCheck, FileText, FolderOpen, MessageSquare, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { useWebAuth } from "@/app/auth-provider";
 
 const NAV = [
   { href: "/office", label: "Inspections", icon: ClipboardCheck, exact: true },
   { href: "/office/templates", label: "Templates", icon: FileText },
+  { href: "/office/compliance", label: "Compliance", icon: ShieldCheck },
+  { href: "/office/registers", label: "Registers", icon: FolderOpen },
+  { href: "/office/actions", label: "Actions", icon: Activity },
 ];
 
 function isActive(pathname: string, href: string, exact?: boolean) {
