@@ -1,0 +1,173 @@
+// Inspection lifecycle: start (pins a template version) -> save responses -> complete
+// (auto-scores, auto-creates corrective actions, and schedules a PDF report).
+import { mutation, query } from "./_generated/server";
+import { v } from "convex/values";
+import { computeScore } from "./lib/scoring";
+import { internal } from "./_generated/api";
+import { workflow, retrier, scoreByOrg, scoreBySite } from "./components";
+import type { Section } from "./templatePacks/types";
+
+const responseValidator = v.object({
+  questionId: v.string(),
+  value: v.optional(v.any()),
+  note: v.optional(v.string()),
+  mediaIds: v.optional(v.array(v.id("media"))),
+  flagged: v.optional(v.boolean()),
+});
+
+/** Start an inspection — snapshots the template's CURRENT version id so the run is reproducible. */
+export const start = mutation({
+  args: {
+    orgId: v.id("organizations"),
+    templateId: v.id("templates"),
+    inspectorId: v.id("users"),
+    siteId: v.optional(v.id("sites")),
+    assetId: v.optional(v.id("assets")),
+  },
+  handler: async (ctx, args) => {
+    const template = await ctx.db.get(args.templateId);
+    if (!template) throw new Error("Template not found");
+    const tv = await ctx.db
+      .query("templateVersions")
+      .withIndex("by_template_version", (q) =>
+        q.eq("templateId", args.templateId).eq("version", template.currentVersion),
+      )
+      .unique();
+    if (!tv) throw new Error("Template version not found");
+
+    return await ctx.db.insert("inspections", {
+      orgId: args.orgId,
+      siteId: args.siteId,
+      templateId: args.templateId,
+      templateVersionId: tv._id,
+      version: template.currentVersion,
+      inspectorId: args.inspectorId,
+      status: "in_progress",
+      startedAt: Date.now(),
+      responses: [],
+      assetId: args.assetId,
+    });
+  },
+});
+
+/** Save/replace the answer set (offline clients sync the full set). */
+export const saveResponses = mutation({
+  args: { inspectionId: v.id("inspections"), responses: v.array(responseValidator) },
+  handler: async (ctx, { inspectionId, responses }) => {
+    await ctx.db.patch(inspectionId, { responses });
+  },
+});
+
+/** Complete: compute score, flag failures, auto-create corrective actions, audit-log it. */
+export const complete = mutation({
+  args: { inspectionId: v.id("inspections") },
+  handler: async (ctx, { inspectionId }): Promise<{
+    score?: number;
+    flaggedQuestionIds: string[];
+    actionsCreated: number;
+    workflowId: string;
+  }> => {
+    const insp = await ctx.db.get(inspectionId);
+    if (!insp) throw new Error("Inspection not found");
+    const tv = await ctx.db.get(insp.templateVersionId);
+    if (!tv) throw new Error("Template version missing");
+
+    const result = computeScore(tv.sections as unknown as Section[], insp.responses);
+
+    await ctx.db.patch(inspectionId, {
+      status: "completed",
+      score: result.score,
+      completedAt: Date.now(),
+    });
+
+    // Update the analytics aggregates with the now-scored inspection so dashboard
+    // averages / counts / leaderboards stay O(log n) (no collect()+reduce at read time).
+    const scored = await ctx.db.get(inspectionId);
+    if (scored && scored.score !== undefined) {
+      await scoreByOrg.insertIfDoesNotExist(ctx, scored);
+      await scoreBySite.insertIfDoesNotExist(ctx, scored);
+    }
+
+    let actionsCreated = 0;
+    for (const f of result.failedTriggers) {
+      await ctx.db.insert("actions", {
+        orgId: insp.orgId,
+        siteId: insp.siteId,
+        title: `Corrective action: ${f.label}`,
+        description: `Auto-created from a failed inspection item ("${f.label}").`,
+        priority: "medium",
+        status: "todo",
+        source: "inspection",
+        inspectionId,
+      });
+      actionsCreated++;
+    }
+
+    await ctx.db.insert("auditLog", {
+      orgId: insp.orgId,
+      actorId: insp.inspectorId,
+      action: "inspection.completed",
+      entityTable: "inspections",
+      entityId: inspectionId,
+      at: Date.now(),
+      meta: {
+        score: result.score,
+        flagged: result.flaggedQuestionIds.length,
+        actionsCreated,
+      },
+    });
+
+    // Kick off the durable post-complete pipeline (PDF report → finalize → future
+    // notifications). The Workflow component makes it resumable + exactly-once, and the
+    // report step retries with backoff — replacing the old fire-and-forget scheduler call.
+    const workflowId = await workflow.start(
+      ctx,
+      internal.workflows.inspectionCompleted,
+      { inspectionId },
+    );
+
+    return {
+      score: result.score,
+      flaggedQuestionIds: result.flaggedQuestionIds,
+      actionsCreated,
+      workflowId,
+    };
+  },
+});
+
+/**
+ * On-demand: (re)generate the PDF report for an inspection via the Action Retrier.
+ * Unlike the workflow path, this is a one-shot retried run — handy for a "Regenerate report"
+ * button. The retrier handles exponential backoff if the Node render action transiently fails.
+ */
+export const regenerateReport = mutation({
+  args: { inspectionId: v.id("inspections") },
+  handler: async (ctx, { inspectionId }): Promise<{ runId: string }> => {
+    const runId = await retrier.run(ctx, internal.reports.generateInternal, { inspectionId });
+    return { runId };
+  },
+});
+
+/** List inspections for an org, optionally filtered by status. */
+export const list = query({
+  args: {
+    orgId: v.id("organizations"),
+    status: v.optional(
+      v.union(v.literal("in_progress"), v.literal("completed"), v.literal("submitted")),
+    ),
+  },
+  handler: async (ctx, { orgId, status }) => {
+    if (status) {
+      return await ctx.db
+        .query("inspections")
+        .withIndex("by_org_status", (q) => q.eq("orgId", orgId).eq("status", status))
+        .order("desc")
+        .collect();
+    }
+    return await ctx.db
+      .query("inspections")
+      .withIndex("by_org", (q) => q.eq("orgId", orgId))
+      .order("desc")
+      .collect();
+  },
+});

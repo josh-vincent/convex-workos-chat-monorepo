@@ -6,18 +6,25 @@
     "dev": "convex dev",
     "setup": "convex dev --until-success",
     "setup:mock-auth": "node scripts/setup-mock-auth.mjs",
+    "seed": "convex run seed:seedAll",
     "typecheck": "tsc --noEmit -p convex"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@convex-dev/action-retrier": "^0.3.0",
+    "@convex-dev/aggregate": "^0.2.1",
+    "@convex-dev/workflow": "^0.4.2",
+    "@react-pdf/renderer": "^4.5.1",
     "ai": "^5.0.193",
     "convex": "^1.35.1",
     "jose": "^6.2.3",
+    "react": "^19.2.0",
     "zod": "^4.4.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/react": "^19.2.0",
     "typescript": "6.0.3"
   }
 }
