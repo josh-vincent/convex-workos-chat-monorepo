@@ -116,47 +116,63 @@ function OptionPill({
   );
 }
 
-/** Optional photo evidence — available on every question. */
-function Attachments({
-  attachments,
+/** Compact inline camera button — lives in the question's label row (no extra height). */
+function AttachButton({
+  count,
   attaching,
   onAttach,
+}: {
+  count: number;
+  attaching?: boolean;
+  onAttach: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onAttach}
+      disabled={attaching}
+      hitSlop={8}
+      className="-mt-0.5 h-8 flex-row items-center gap-1 rounded-lg border border-border bg-card px-2.5 active:bg-muted"
+    >
+      {attaching ? (
+        <ActivityIndicator size="small" />
+      ) : (
+        <Icon icon={Camera} className="h-4 w-4 text-muted-foreground" />
+      )}
+      {count > 0 ? (
+        <Text className="font-body-semibold text-[12px] tabular-nums text-foreground">
+          {count}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/** Small thumbnail strip — only rendered when there's evidence to show. */
+function Thumbnails({
+  attachments,
   onRemove,
 }: {
   attachments: Attachment[];
-  attaching?: boolean;
-  onAttach: () => void;
   onRemove: (mediaId: string) => void;
 }) {
   return (
-    <View className="mt-2.5 flex-row flex-wrap items-center gap-2">
-      <Pressable
-        onPress={onAttach}
-        disabled={attaching}
-        className="h-14 w-14 items-center justify-center rounded-lg border-2 border-dashed border-border active:bg-muted"
-      >
-        {attaching ? (
-          <ActivityIndicator size="small" />
-        ) : (
-          <Icon icon={Camera} className="h-5 w-5 text-muted-foreground" />
-        )}
-      </Pressable>
+    <View className="mt-2 flex-row flex-wrap gap-2">
       {attachments.map((a) => (
         <View key={a.mediaId} className="relative">
           {a.url ? (
             <Image
               source={{ uri: a.url }}
-              style={{ width: 56, height: 56, borderRadius: 8 }}
+              style={{ width: 44, height: 44, borderRadius: 6 }}
             />
           ) : (
-            <View className="h-14 w-14 rounded-lg bg-muted" />
+            <View className="h-11 w-11 rounded-md bg-muted" />
           )}
           <Pressable
             onPress={() => onRemove(a.mediaId)}
             hitSlop={6}
-            className="absolute -right-1.5 -top-1.5 h-5 w-5 items-center justify-center rounded-full bg-foreground"
+            className="absolute -right-1.5 -top-1.5 h-[18px] w-[18px] items-center justify-center rounded-full bg-foreground"
           >
-            <Icon icon={X} className="h-3 w-3 text-background" />
+            <Icon icon={X} className="h-2.5 w-2.5 text-background" />
           </Pressable>
         </View>
       ))}
@@ -197,10 +213,19 @@ export function QuestionField({
 
   return (
     <View className="mb-6">
-      <Text className="mb-2.5 font-body-semibold text-[16px] leading-5 text-foreground">
-        {q.label}
-        {q.required ? <Text className="text-hivis"> *</Text> : null}
-      </Text>
+      <View className="mb-2.5 flex-row items-start gap-3">
+        <Text className="flex-1 font-body-semibold text-[16px] leading-5 text-foreground">
+          {q.label}
+          {q.required ? <Text className="text-hivis"> *</Text> : null}
+        </Text>
+        {onAttach ? (
+          <AttachButton
+            count={attachments.length}
+            attaching={attaching}
+            onAttach={onAttach}
+          />
+        ) : null}
+      </View>
 
       {q.type === "passFailNA" || q.type === "question" ? (
         <Segmented
@@ -272,19 +297,14 @@ export function QuestionField({
           className={`min-h-14 ${INPUT}`}
         />
       ) : (
-        // signature / photo / media / drawing — the attachment row below IS the control
+        // signature / photo / media / drawing — the camera button above is the control
         <Text className="font-body text-[13px] text-muted-foreground">
-          Attach photo evidence below.
+          Attach a photo with the camera.
         </Text>
       )}
 
-      {onAttach ? (
-        <Attachments
-          attachments={attachments}
-          attaching={attaching}
-          onAttach={onAttach}
-          onRemove={onRemove ?? (() => {})}
-        />
+      {attachments.length > 0 ? (
+        <Thumbnails attachments={attachments} onRemove={onRemove ?? (() => {})} />
       ) : null}
 
       {q.helpText ? (
