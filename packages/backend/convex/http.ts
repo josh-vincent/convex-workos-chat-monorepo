@@ -4,6 +4,7 @@ import { SignJWT, importPKCS8 } from "jose";
 import {
   convertToModelMessages,
   streamText,
+  stepCountIs,
   tool,
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -11,6 +12,9 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { z } from "zod";
+import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import type { ActionCtx } from "./_generated/server";
 
 // Example tool the model can call when AI_GATEWAY_API_KEY is set.
 const chatTools = {
@@ -145,6 +149,163 @@ function lastUserMessageText(messages: UIMessage[]): string {
     .join("")
     .slice(0, 200);
 }
+
+// --- Inspection-assist helpers ----------------------------------------------
+
+type FormQuestion = {
+  id: string;
+  label: string;
+  type: string;
+  options?: { label: string; flag?: boolean }[];
+  min?: number;
+  max?: number;
+};
+
+/** Pick a sensible default answer for the scripted (offline) agent. */
+function defaultAnswer(q: FormQuestion): unknown {
+  switch (q.type) {
+    case "passFailNA":
+    case "question":
+      return "pass";
+    case "checkbox":
+      return true;
+    case "multipleChoice":
+    case "list":
+      return ((q.options ?? []).find((o) => !o.flag) ?? q.options?.[0])?.label;
+    case "number":
+    case "temperature":
+    case "slider":
+      return q.min != null && q.max != null
+        ? Math.round((q.min + q.max) / 2)
+        : (q.min ?? 0);
+    case "date":
+    case "datetime":
+      return new Date().toISOString().slice(0, 10);
+    case "text":
+      return "OK — checked, no issues.";
+    default:
+      return undefined; // instruction / signature / photo / media / etc. — skip
+  }
+}
+
+/** AI SDK tools the model uses to complete an inspection (real-model path). */
+function inspectionTools(ctx: ActionCtx, inspectionId: Id<"inspections">) {
+  return {
+    getInspectionForm: tool({
+      description:
+        "Read the active inspection: questions (id, label, type, options) and answers so far.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const f = await ctx.runQuery(api.inspections.get, { inspectionId });
+        return f
+          ? {
+              name: f.templateName,
+              sections: f.sections,
+              responses: f.inspection.responses,
+            }
+          : { error: "not found" };
+      },
+    }),
+    setAnswer: tool({
+      description:
+        "Record one answer by the question's id. value matches the type " +
+        "(passFailNA: 'pass'|'fail'|'na'; checkbox: boolean; number/temperature: number; " +
+        "multipleChoice/list: an option label; text/date: string).",
+      inputSchema: z.object({
+        questionId: z.string(),
+        value: z.any(),
+        note: z.string().optional(),
+        flagged: z.boolean().optional(),
+      }),
+      execute: async ({ questionId, value, note, flagged }) => {
+        await ctx.runMutation(api.inspections.setAnswer, {
+          inspectionId,
+          questionId,
+          value,
+          note,
+          flagged,
+        });
+        return { ok: true };
+      },
+    }),
+    completeInspection: tool({
+      description: "Finish and score the inspection once questions are answered.",
+      inputSchema: z.object({}),
+      execute: async () =>
+        await ctx.runMutation(api.inspections.complete, { inspectionId }),
+    }),
+  };
+}
+
+/** Scripted (offline) agent: fill the form via real mutations, narrating tool calls. */
+async function scriptedFill(
+  ctx: ActionCtx,
+  inspectionId: Id<"inspections">,
+  writer: { write: (chunk: UIMessageChunk) => void },
+) {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const text = async (id: string, body: string) => {
+    writer.write({ type: "text-start", id });
+    for (const c of body.split(/(?<=\s)/)) {
+      writer.write({ type: "text-delta", id, delta: c });
+      await sleep(15);
+    }
+    writer.write({ type: "text-end", id });
+  };
+
+  const form = await ctx.runQuery(api.inspections.get, { inspectionId });
+  if (!form) {
+    await text("err", "I couldn't find that inspection.");
+    return;
+  }
+  await text("intro", `On it — completing **${form.templateName}**.\n`);
+
+  const c0 = "t_read";
+  writer.write({ type: "tool-input-start", toolCallId: c0, toolName: "getInspectionForm" });
+  writer.write({ type: "tool-input-available", toolCallId: c0, toolName: "getInspectionForm", input: {} });
+  await sleep(300);
+  const questions = (form.sections as { questions: FormQuestion[] }[]).flatMap(
+    (s) => s.questions,
+  );
+  writer.write({ type: "tool-output-available", toolCallId: c0, output: { questions: questions.length } });
+
+  let n = 0;
+  for (const q of questions) {
+    const value = defaultAnswer(q);
+    if (value === undefined) continue;
+    const cid = `t_set_${n++}`;
+    writer.write({ type: "tool-input-start", toolCallId: cid, toolName: "setAnswer" });
+    writer.write({
+      type: "tool-input-available",
+      toolCallId: cid,
+      toolName: "setAnswer",
+      input: { questionId: q.id, label: q.label, value },
+    });
+    await ctx.runMutation(api.inspections.setAnswer, {
+      inspectionId,
+      questionId: q.id,
+      value,
+    });
+    await sleep(110);
+    writer.write({ type: "tool-output-available", toolCallId: cid, output: { ok: true } });
+  }
+
+  const cc = "t_complete";
+  writer.write({ type: "tool-input-start", toolCallId: cc, toolName: "completeInspection" });
+  writer.write({ type: "tool-input-available", toolCallId: cc, toolName: "completeInspection", input: {} });
+  const res = await ctx.runMutation(api.inspections.complete, { inspectionId });
+  await sleep(300);
+  writer.write({
+    type: "tool-output-available",
+    toolCallId: cc,
+    output: { score: res.score, actionsCreated: res.actionsCreated },
+  });
+  await text(
+    "outro",
+    `\nDone — answered ${n} item(s), scored **${res.score ?? "—"}%**, created ${res.actionsCreated} corrective action(s).`,
+  );
+}
+
 http.route({
   path: "/chat",
   method: "OPTIONS",
@@ -163,10 +324,38 @@ http.route({
       });
     }
 
-    const { messages } = (await request.json()) as { messages: UIMessage[] };
+    const body = (await request.json()) as {
+      messages: UIMessage[];
+      inspectionId?: string;
+    };
+    const messages = body.messages;
+    const hasKey = !!process.env.AI_GATEWAY_API_KEY;
+
+    // Inspection-assist mode: the technician is completing a form via chat.
+    if (body.inspectionId) {
+      const inspectionId = body.inspectionId as Id<"inspections">;
+      if (hasKey) {
+        const result = streamText({
+          model: CHAT_MODEL,
+          system:
+            "You are a field safety assistant completing an inspection. Call " +
+            "getInspectionForm to read the questions (ids + types), then setAnswer " +
+            "for each (value must match the type), then completeInspection and report " +
+            "the score. If the user describes findings, reflect them in the answers.",
+          messages: convertToModelMessages(messages),
+          tools: inspectionTools(ctx, inspectionId),
+          stopWhen: stepCountIs(12),
+        });
+        return result.toUIMessageStreamResponse({ headers: streamHeaders });
+      }
+      const stream = createUIMessageStream({
+        execute: async ({ writer }) => scriptedFill(ctx, inspectionId, writer),
+      });
+      return createUIMessageStreamResponse({ stream, headers: streamHeaders });
+    }
 
     // No gateway key → stream a mocked reply over the real UI message protocol.
-    if (!process.env.AI_GATEWAY_API_KEY) {
+    if (!hasKey) {
       const lastUserText = lastUserMessageText(messages);
       const reply =
         `**Mocked reply** streamed from the Convex \`/chat\` action ` +

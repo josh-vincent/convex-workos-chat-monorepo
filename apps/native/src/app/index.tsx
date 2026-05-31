@@ -24,7 +24,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { fetch as expoFetch } from "expo/fetch";
 import * as Haptics from "expo-haptics";
-import { Link } from "expo-router";
+import { Link, useLocalSearchParams } from "expo-router";
 import { Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -101,7 +101,7 @@ function getToolsFromParts(parts: RawPart[]): ChatToolPart[] {
     }));
 }
 
-function useAIChat() {
+function useAIChat(inspectionId?: string) {
   const [input, setInput] = useState("");
   const streamingStore = useMemo(() => createStreamingStore(), []);
   const prevStreamingTextRef = useRef("");
@@ -114,6 +114,8 @@ function useAIChat() {
     () =>
       new DefaultChatTransport({
         api: chatApiUrl(),
+        // When an inspection is active, the server fills/completes it via tools.
+        body: inspectionId ? { inspectionId } : undefined,
         fetch: (async (url: string, options?: RequestInit) => {
           const token = await getToken();
           const headers = {
@@ -123,7 +125,7 @@ function useAIChat() {
           return expoFetch(url, { ...options, headers } as never);
         }) as unknown as typeof globalThis.fetch,
       }),
-    [getToken],
+    [getToken, inspectionId],
   );
 
   const {
@@ -303,8 +305,12 @@ function ChatEmptyState() {
 }
 
 export default function ChatScreen() {
+  // An active inspection (passed from the runner's "Complete with the assistant").
+  const params = useLocalSearchParams<{ inspectionId?: string }>();
+  const inspectionId =
+    typeof params.inspectionId === "string" ? params.inspectionId : undefined;
   // Call both hooks unconditionally (rules-of-hooks); select by the build-time flag.
-  const aiChat = useAIChat();
+  const aiChat = useAIChat(inspectionId);
   const mockChat = useMockChat();
   const chat = USE_MOCK ? mockChat : aiChat;
   const { isGenerating, streamingStore } = chat;

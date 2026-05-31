@@ -172,6 +172,25 @@ export const list = query({
   },
 });
 
+/** Set/replace a single answer (used by the AI assistant tools and quick edits). */
+export const setAnswer = mutation({
+  args: {
+    inspectionId: v.id("inspections"),
+    questionId: v.string(),
+    value: v.optional(v.any()),
+    note: v.optional(v.string()),
+    flagged: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { inspectionId, questionId, value, note, flagged }) => {
+    const insp = await ctx.db.get(inspectionId);
+    if (!insp) throw new Error("Inspection not found");
+    const responses = insp.responses.filter((r) => r.questionId !== questionId);
+    responses.push({ questionId, value, note, flagged });
+    await ctx.db.patch(inspectionId, { responses });
+    return { ok: true };
+  },
+});
+
 /** An inspection plus the frozen template version it runs on (the questions to render). */
 export const get = query({
   args: { inspectionId: v.id("inspections") },
