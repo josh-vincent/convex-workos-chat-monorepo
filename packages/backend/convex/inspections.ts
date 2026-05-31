@@ -174,7 +174,15 @@ export const list = query({
   args: {
     orgId: v.id("organizations"),
     status: v.optional(
-      v.union(v.literal("in_progress"), v.literal("completed"), v.literal("submitted")),
+      v.union(
+        v.literal("in_progress"),
+        v.literal("completed"),
+        v.literal("submitted"),
+        v.literal("scheduled"),
+        v.literal("actions_open"),
+        v.literal("closed"),
+        v.literal("overdue"),
+      ),
     ),
   },
   handler: async (ctx, { orgId, status }) => {
@@ -260,6 +268,63 @@ export const revise = mutation({
     await ctx.db.patch(inspectionId, { supersededById: newId });
 
     return newId;
+  },
+});
+
+/**
+ * Append a sign-off entry to an inspection's signOffs array.
+ * Pure db reads/writes — no component calls (workflow/scoreByOrg/scoreBySite).
+ */
+export const signOn = mutation({
+  args: {
+    inspectionId: v.id("inspections"),
+    userId: v.id("users"),
+    role: v.optional(v.string()),
+    signatureMediaId: v.optional(v.id("media")),
+  },
+  handler: async (ctx, { inspectionId, userId, role, signatureMediaId }) => {
+    const insp = await ctx.db.get(inspectionId);
+    if (!insp) throw new Error("Inspection not found");
+
+    const existing = insp.signOffs ?? [];
+    const entry: {
+      userId: typeof userId;
+      at: number;
+      role?: string;
+      signatureMediaId?: typeof signatureMediaId;
+    } = { userId, at: Date.now() };
+    if (role !== undefined) entry.role = role;
+    if (signatureMediaId !== undefined) entry.signatureMediaId = signatureMediaId;
+
+    await ctx.db.patch(inspectionId, { signOffs: [...existing, entry] });
+    return { ok: true };
+  },
+});
+
+/**
+ * Check whether all corrective actions linked to this inspection are verified,
+ * then transition the inspection to "closed" or "actions_open" accordingly.
+ * Pure db reads/writes — no component calls.
+ */
+export const closeIfResolved = mutation({
+  args: { inspectionId: v.id("inspections") },
+  handler: async (ctx, { inspectionId }): Promise<{ status: "closed" | "actions_open" }> => {
+    const insp = await ctx.db.get(inspectionId);
+    if (!insp) throw new Error("Inspection not found");
+
+    const linkedActions = await ctx.db
+      .query("actions")
+      .withIndex("by_org", (q) => q.eq("orgId", insp.orgId))
+      .filter((q) => q.eq(q.field("inspectionId"), inspectionId))
+      .collect();
+
+    const allVerified =
+      linkedActions.length === 0 ||
+      linkedActions.every((a) => a.status === "verified");
+
+    const newStatus: "closed" | "actions_open" = allVerified ? "closed" : "actions_open";
+    await ctx.db.patch(inspectionId, { status: newStatus });
+    return { status: newStatus };
   },
 });
 

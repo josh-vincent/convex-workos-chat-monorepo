@@ -232,10 +232,23 @@ export default defineSchema({
       v.literal("in_progress"),
       v.literal("completed"),
       v.literal("submitted"),
+      v.literal("scheduled"),
+      v.literal("actions_open"),
+      v.literal("closed"),
+      v.literal("overdue"),
     ),
     score: v.optional(v.number()), // 0–100 percent
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
+    scheduledAt: v.optional(v.number()),
+    submittedAt: v.optional(v.number()),
+    completedBy: v.optional(v.id("users")),
+    signOffs: v.optional(v.array(v.object({
+      userId: v.id("users"),
+      role: v.optional(v.string()),
+      signatureMediaId: v.optional(v.id("media")),
+      at: v.number(),
+    }))),
     responses: v.array(
       v.object({
         questionId: v.string(),
