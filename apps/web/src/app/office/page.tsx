@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "@packages/backend/convex/_generated/api";
 import { useBeacon } from "@/hooks/useBeacon";
+import ResetDemoZone from "@/components/office/ResetDemoZone";
 import {
   ScoreBadge,
   StatusPill,
@@ -86,6 +87,8 @@ export default function OfficeInspectionsPage() {
           </table>
         </div>
       )}
+
+      <ResetDemoZone />
     </div>
   );
 }
