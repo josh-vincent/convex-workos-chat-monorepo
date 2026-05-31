@@ -16,7 +16,7 @@ type Question = {
   type: string;
   required?: boolean;
   helpText?: string;
-  options?: string[];
+  options?: { label: string; flag?: boolean }[];
 };
 type Section = { id?: string; title: string; questions: Question[] };
 
@@ -139,10 +139,14 @@ export default function TemplateStructurePage() {
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {q.options.map((o) => (
                           <span
-                            key={o}
-                            className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600"
+                            key={o.label}
+                            className={`rounded-md px-2 py-0.5 text-xs ${
+                              o.flag
+                                ? "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20"
+                                : "bg-neutral-100 text-neutral-600"
+                            }`}
                           >
-                            {o}
+                            {o.label}
                           </span>
                         ))}
                       </div>
