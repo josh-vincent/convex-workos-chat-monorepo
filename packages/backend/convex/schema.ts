@@ -46,6 +46,7 @@ export const questionType = v.union(
   v.literal("list"), // single-select dropdown / response list
   v.literal("address"), // postal / site address
   v.literal("drawing"), // annotated drawing / sketch
+  v.literal("controlMeasure"), // hazard → risk rating → control (SWMS, spec §9)
 );
 
 const questionOption = v.object({
@@ -279,6 +280,10 @@ export default defineSchema({
     // Append-only revision chain (spec §5.2, §10, DoD #2).
     // When an inspection is revised, the OLD row's supersededById is set to the new id.
     supersededById: v.optional(v.id("inspections")),
+    // SWMS fields (spec §9, DoD #7) — links an inspection to its principal contractor
+    // and records when the SWMS was shared with them.
+    principalContractorId: v.optional(v.id("contracts")),
+    swmsSharedAt: v.optional(v.number()),
   })
     .index("by_org", ["orgId"])
     .index("by_site", ["siteId"])
