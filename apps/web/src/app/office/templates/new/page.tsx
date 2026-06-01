@@ -18,7 +18,8 @@ type QType =
   | "date"
   | "photo"
   | "signature"
-  | "instruction";
+  | "instruction"
+  | "controlMeasure";
 
 const TYPES: { value: QType; label: string }[] = [
   { value: "passFailNA", label: "Pass / Fail / N/A" },
@@ -31,6 +32,7 @@ const TYPES: { value: QType; label: string }[] = [
   { value: "photo", label: "Photo" },
   { value: "signature", label: "Signature" },
   { value: "instruction", label: "Instruction (no answer)" },
+  { value: "controlMeasure", label: "Control measure (hazard → control)" },
 ];
 
 type BuilderQuestion = {

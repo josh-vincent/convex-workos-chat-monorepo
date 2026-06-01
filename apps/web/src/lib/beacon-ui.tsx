@@ -63,6 +63,7 @@ const TYPE_LABELS: Record<string, string> = {
   photo: "Photo",
   slider: "Slider",
   list: "Select from list",
+  controlMeasure: "Control measure",
 };
 
 export function typeLabel(type: string): string {
@@ -75,6 +76,12 @@ export function formatAnswer(value: unknown): ReactNode {
     return <span className="text-muted-foreground">Not answered</span>;
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object" && value !== null && "hazard" in value) {
+    const cm = value as { hazard?: string; riskRating?: string; controlLevel?: string; control?: string };
+    const level = cm.controlLevel ? cm.controlLevel.charAt(0).toUpperCase() + cm.controlLevel.slice(1) : "—";
+    const risk = cm.riskRating ? cm.riskRating.charAt(0).toUpperCase() + cm.riskRating.slice(1) : "—";
+    return `Hazard: ${cm.hazard ?? "—"} · Risk: ${risk} · Control (${level}): ${cm.control ?? "—"}`;
+  }
   return String(value);
 }
 

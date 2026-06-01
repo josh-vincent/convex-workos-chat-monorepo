@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -233,6 +234,193 @@ function DocChips({
   );
 }
 
+// ── Control-measure (hierarchy of control) answer shape ─────────────────────
+type ControlMeasureValue = {
+  hazard: string;
+  riskRating: "low" | "medium" | "high" | "extreme";
+  controlLevel:
+    | "elimination"
+    | "substitution"
+    | "isolation"
+    | "engineering"
+    | "admin"
+    | "ppe";
+  control: string;
+};
+
+function isControlMeasureValue(v: unknown): v is ControlMeasureValue {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "hazard" in v &&
+    "riskRating" in v &&
+    "controlLevel" in v &&
+    "control" in v
+  );
+}
+
+const RISK_RATINGS: {
+  value: ControlMeasureValue["riskRating"];
+  label: string;
+  bg: string;
+  text: string;
+  selectedBg: string;
+  selectedText: string;
+}[] = [
+  {
+    value: "low",
+    label: "Low",
+    bg: "bg-card active:bg-muted",
+    text: "text-muted-foreground",
+    selectedBg: "bg-pass",
+    selectedText: "text-on-fill",
+  },
+  {
+    value: "medium",
+    label: "Med",
+    bg: "bg-card active:bg-muted",
+    text: "text-muted-foreground",
+    selectedBg: "bg-hivis",
+    selectedText: "text-background",
+  },
+  {
+    value: "high",
+    label: "High",
+    bg: "bg-card active:bg-muted",
+    text: "text-muted-foreground",
+    selectedBg: "bg-fail",
+    selectedText: "text-on-fill",
+  },
+  {
+    value: "extreme",
+    label: "Extreme",
+    bg: "bg-card active:bg-muted",
+    text: "text-muted-foreground",
+    selectedBg: "bg-fail",
+    selectedText: "text-on-fill",
+  },
+];
+
+// Hierarchy of control levels ordered strongest → weakest
+const CONTROL_LEVELS: {
+  value: ControlMeasureValue["controlLevel"];
+  label: string;
+  rank: string;
+}[] = [
+  { value: "elimination", label: "Elimination", rank: "1" },
+  { value: "substitution", label: "Substitution", rank: "2" },
+  { value: "isolation", label: "Isolation", rank: "3" },
+  { value: "engineering", label: "Engineering", rank: "4" },
+  { value: "admin", label: "Administrative", rank: "5" },
+  { value: "ppe", label: "PPE", rank: "6" },
+];
+
+function ControlMeasureField({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const cm: ControlMeasureValue = isControlMeasureValue(value)
+    ? value
+    : { hazard: "", riskRating: "low", controlLevel: "elimination", control: "" };
+
+  const patch = (partial: Partial<ControlMeasureValue>) =>
+    onChange({ ...cm, ...partial });
+
+  return (
+    <View className="gap-3">
+      {/* Hazard */}
+      <View>
+        <Text className="mb-1.5 font-body-medium text-[12px] uppercase tracking-wide text-muted-foreground">
+          Hazard
+        </Text>
+        <TextInput
+          value={cm.hazard}
+          onChangeText={(t) => patch({ hazard: t })}
+          placeholder="Describe the hazard…"
+          placeholderTextColor={PLACEHOLDER}
+          className={`${INPUT}`}
+        />
+      </View>
+
+      {/* Risk rating */}
+      <View>
+        <Text className="mb-1.5 font-body-medium text-[12px] uppercase tracking-wide text-muted-foreground">
+          Risk rating
+        </Text>
+        <View className="flex-row overflow-hidden rounded-xl border-2 border-border bg-card">
+          {RISK_RATINGS.map((r, i) => {
+            const selected = cm.riskRating === r.value;
+            return (
+              <Pressable
+                key={r.value}
+                onPress={() => patch({ riskRating: r.value })}
+                className={`flex-1 items-center justify-center py-3.5 ${i > 0 ? "border-l-2 border-border" : ""} ${selected ? r.selectedBg : r.bg}`}
+              >
+                <Text
+                  className={`font-heading text-[13px] uppercase tracking-[0.5px] ${selected ? r.selectedText : r.text}`}
+                >
+                  {r.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Control level picker — ordered by hierarchy (strongest first) */}
+      <View>
+        <Text className="mb-1.5 font-body-medium text-[12px] uppercase tracking-wide text-muted-foreground">
+          Control level
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerClassName="flex-row gap-2 pb-0.5"
+        >
+          {CONTROL_LEVELS.map((cl) => {
+            const selected = cm.controlLevel === cl.value;
+            return (
+              <Pressable
+                key={cl.value}
+                onPress={() => patch({ controlLevel: cl.value })}
+                className={`rounded-lg border-2 px-3.5 py-2.5 ${
+                  selected
+                    ? "border-foreground bg-foreground"
+                    : "border-border bg-card active:bg-muted"
+                }`}
+              >
+                <Text
+                  className={`font-body-medium text-[13px] ${selected ? "text-background" : "text-foreground"}`}
+                >
+                  {cl.rank}. {cl.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Control description */}
+      <View>
+        <Text className="mb-1.5 font-body-medium text-[12px] uppercase tracking-wide text-muted-foreground">
+          Control measure
+        </Text>
+        <TextInput
+          multiline
+          value={cm.control}
+          onChangeText={(t) => patch({ control: t })}
+          placeholder="Describe how the hazard is controlled…"
+          placeholderTextColor={PLACEHOLDER}
+          className={`min-h-14 ${INPUT}`}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function QuestionField({
   question: q,
   value,
@@ -379,6 +567,8 @@ export function QuestionField({
           placeholderTextColor={PLACEHOLDER}
           className={`min-h-14 ${INPUT}`}
         />
+      ) : q.type === "controlMeasure" ? (
+        <ControlMeasureField value={value} onChange={onChange} />
       ) : (
         <Text className="font-body text-[13px] text-muted-foreground">
           Attach a photo or document above.

@@ -69,6 +69,13 @@ export function answerText(value: unknown): { text: string; color: ReturnType<ty
     return { text: "Not answered", color: MUTED };
   if (value === true) return { text: "Yes", color: PASS };
   if (value === false) return { text: "No", color: INK };
+  if (typeof value === "object" && value !== null && "hazard" in value) {
+    const cm = value as { hazard?: string; riskRating?: string; controlLevel?: string; control?: string };
+    const level = cm.controlLevel ? cm.controlLevel.charAt(0).toUpperCase() + cm.controlLevel.slice(1) : "-";
+    const risk = cm.riskRating ? cm.riskRating.charAt(0).toUpperCase() + cm.riskRating.slice(1) : "-";
+    const text = `Hazard: ${cm.hazard ?? "-"} | Risk: ${risk} | Control (${level}): ${cm.control ?? "-"}`;
+    return { text, color: INK };
+  }
   const s = String(value);
   if (s === "pass") return { text: "PASS", color: PASS };
   if (s === "fail") return { text: "FAIL", color: FAIL };
