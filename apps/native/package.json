@@ -21,6 +21,7 @@
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "ai": "^5.0.193",
     "clsx": "^2.1.1",
     "connect": "^3.7.0",

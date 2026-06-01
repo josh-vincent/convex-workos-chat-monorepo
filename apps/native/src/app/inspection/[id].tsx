@@ -19,9 +19,11 @@ import {
 } from "expo-file-system/legacy";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -155,16 +157,12 @@ export default function InspectionRunner() {
       [questionId]: [...(a[questionId] ?? []), att],
     }));
 
-  // Photo: iOS gives HEIC; expo-image-picker's base64 is JPEG, so re-encode for the web.
-  const attachPhoto = async (questionId: string) => {
-    if (uploading || !data) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.6,
-      base64: true,
-    });
-    if (picked.canceled || !picked.assets[0]) return;
-    const asset = picked.assets[0];
+  // Shared: re-encode + upload a captured/picked image as photo evidence.
+  // iOS gives HEIC; expo-image-picker's base64 is JPEG, so re-encode for the web.
+  const uploadImageAsset = async (
+    questionId: string,
+    asset: ImagePicker.ImagePickerAsset,
+  ) => {
     setUploading(questionId);
     try {
       let uri = asset.uri;
@@ -180,6 +178,61 @@ export default function InspectionRunner() {
       uploadError(e);
     } finally {
       setUploading(null);
+    }
+  };
+
+  const captureFromCamera = async (questionId: string) => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(
+        "Camera access needed",
+        "Allow camera access in Settings to take inspection photos.",
+      );
+      return;
+    }
+    const picked = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.6,
+      base64: true,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    await uploadImageAsset(questionId, picked.assets[0]);
+  };
+
+  const pickFromLibrary = async (questionId: string) => {
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.6,
+      base64: true,
+    });
+    if (picked.canceled || !picked.assets[0]) return;
+    await uploadImageAsset(questionId, picked.assets[0]);
+  };
+
+  // Photo evidence: let the field user pick the camera or their photo library.
+  const attachPhoto = (questionId: string) => {
+    if (uploading || !data) return;
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Add photo",
+          options: ["Take Photo", "Choose from Library", "Cancel"],
+          cancelButtonIndex: 2,
+        },
+        (i) => {
+          if (i === 0) captureFromCamera(questionId);
+          else if (i === 1) pickFromLibrary(questionId);
+        },
+      );
+    } else {
+      Alert.alert("Add photo", undefined, [
+        { text: "Take Photo", onPress: () => captureFromCamera(questionId) },
+        {
+          text: "Choose from Library",
+          onPress: () => pickFromLibrary(questionId),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]);
     }
   };
 

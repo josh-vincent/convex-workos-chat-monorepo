@@ -36,6 +36,13 @@
       ],
       "expo-asset",
       "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to attach photos as inspection evidence.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to take photos as inspection evidence."
+        }
+      ],
       "expo-image",
       "expo-web-browser",
       "expo-system-ui",
