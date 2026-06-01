@@ -20,6 +20,7 @@ export {
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputVoiceButton,
 } from "./prompt-input";
 
 // Streaming

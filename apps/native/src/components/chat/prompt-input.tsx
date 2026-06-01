@@ -5,9 +5,13 @@ import {
   GlassView,
   isLiquidGlassAvailable,
 } from "expo-glass-effect";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 
 import { cn } from "@/utils/tailwind";
 import { BlurView } from "expo-blur";
@@ -87,6 +91,71 @@ export function PromptInputAction(props: {
         alignItems: "center",
       }}
     />
+  );
+}
+
+/**
+ * Microphone button: on-device speech-to-text. Tapping starts recognition;
+ * partial transcripts stream live into the composer, and when the user stops
+ * talking the finished transcript is sent as a normal chat message. No audio
+ * ever leaves the device.
+ */
+export function PromptInputVoiceButton() {
+  const { setInput, onSend, sendText, isGenerating } = useChatContext();
+  const [isListening, setIsListening] = useState(false);
+  const transcriptRef = useRef("");
+
+  useSpeechRecognitionEvent("result", (event) => {
+    const transcript = event.results?.[0]?.transcript ?? "";
+    transcriptRef.current = transcript;
+    setInput(transcript); // live partial feedback in the composer
+  });
+
+  useSpeechRecognitionEvent("end", () => {
+    setIsListening(false);
+    const final = transcriptRef.current.trim();
+    transcriptRef.current = "";
+    if (!final) return;
+    // Brief pause so the user sees the captured text, then send it.
+    setTimeout(() => {
+      if (sendText) sendText(final);
+      else onSend();
+    }, 300);
+  });
+
+  useSpeechRecognitionEvent("error", () => {
+    setIsListening(false);
+    transcriptRef.current = "";
+  });
+
+  const handlePress = async () => {
+    if (isGenerating) return;
+    if (isListening) {
+      ExpoSpeechRecognitionModule.stop();
+      return;
+    }
+    const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!perm.granted) return;
+    transcriptRef.current = "";
+    setInput("");
+    setIsListening(true);
+    ExpoSpeechRecognitionModule.start({
+      lang: "en-US",
+      interimResults: true,
+      continuous: false,
+    });
+  };
+
+  return (
+    <PromptInputAction onPress={handlePress}>
+      {isListening ? (
+        <Animated.View entering={FadeIn} exiting={FadeOut}>
+          <ActivityIndicator size="small" />
+        </Animated.View>
+      ) : (
+        <SymbolImage name="mic" size={20} className="text-muted-foreground" />
+      )}
+    </PromptInputAction>
   );
 }
 

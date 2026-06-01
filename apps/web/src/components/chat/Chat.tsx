@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { Check, X } from "lucide-react";
@@ -88,8 +88,59 @@ function describeTool(name: string, input: Record<string, unknown>, output: Reco
             : undefined,
       };
     }
-    case "getWeather":
-      return { title: "Check the weather", detail: input.location ? String(input.location) : undefined };
+    case "getWeather": {
+      const t = output.temperatureC;
+      return {
+        title: "Check the weather",
+        detail:
+          typeof t === "number"
+            ? `${Math.round(t)}°C${output.condition ? ` · ${output.condition}` : ""}`
+            : undefined,
+      };
+    }
+    case "getCurrentLocation":
+      return { title: "Get your location", detail: output.address ? String(output.address) : undefined };
+    case "getCurrentDateTime":
+      return {
+        title: "Read the date & time",
+        detail: output.iso ? String(output.iso).slice(0, 16).replace("T", " ") : undefined,
+      };
+    case "getOutstandingRequired": {
+      const n = output.count;
+      return {
+        title: "Check what's still needed",
+        detail: typeof n === "number" ? (n === 0 ? "All required done" : `${n} remaining`) : undefined,
+      };
+    }
+    case "findTemplates": {
+      const n = Array.isArray(output.templates) ? output.templates.length : output.count;
+      return {
+        title: `Search templates: "${String(input.query ?? "")}"`,
+        detail: typeof n === "number" ? `${n} found` : undefined,
+      };
+    }
+    case "startInspection":
+      return { title: "Start a new inspection" };
+    case "checkCurrency": {
+      const n = output.urgentCount;
+      return {
+        title: "Check register currency",
+        detail: typeof n === "number" ? (n === 0 ? "All current" : `${n} need attention`) : undefined,
+      };
+    }
+    case "raiseAction":
+      return { title: `Raise action: ${String(input.title ?? "")}` };
+    case "reportIncident":
+      return {
+        title: `Report incident${input.incidentType ? `: ${String(input.incidentType).replace("_", " ")}` : ""}`,
+        detail: output.notifiable ? "Notifiable" : undefined,
+      };
+    case "lookupAsset":
+      return { title: `Look up asset: ${String(input.qrCode ?? "")}`, detail: output.name ? String(output.name) : undefined };
+    case "reviewPhotos": {
+      const n = output.photosAnalyzed;
+      return { title: "Review attached photos", detail: typeof n === "number" ? `${n} analysed` : undefined };
+    }
     default:
       return { title: name };
   }
@@ -137,6 +188,18 @@ export default function Chat({ inspectionId }: { inspectionId?: string }) {
     inspectionId ? "Please fill out and complete this inspection." : "",
   );
 
+  // Best-effort browser geolocation so the assistant's location/weather tools work
+  // on web too. Silently ignored if unavailable or denied.
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (p) => setGeo({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => {},
+      { enableHighAccuracy: false, timeout: 8000 },
+    );
+  }, []);
+
   // Stream from the authenticated Convex /chat action (same endpoint as native),
   // attaching the current WorkOS or guest token on every request. When an
   // inspection is active, the server fills/completes it via tools.
@@ -144,7 +207,11 @@ export default function Chat({ inspectionId }: { inspectionId?: string }) {
     () =>
       new DefaultChatTransport({
         api: `${convexSiteUrl()}/chat`,
-        body: inspectionId ? { inspectionId } : undefined,
+        body: {
+          ...(inspectionId ? { inspectionId } : {}),
+          ...(geo ? { location: geo } : {}),
+          deviceTime: new Date().toISOString(),
+        },
         fetch: (async (url: RequestInfo | URL, opts?: RequestInit) => {
           const token = await getToken();
           return fetch(url, {
@@ -156,7 +223,7 @@ export default function Chat({ inspectionId }: { inspectionId?: string }) {
           });
         }) as typeof fetch,
       }),
-    [getToken, inspectionId],
+    [getToken, inspectionId, geo],
   );
 
   const { messages, sendMessage, status } = useChat({ transport });

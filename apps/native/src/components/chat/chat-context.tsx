@@ -8,6 +8,8 @@ export type ChatContextValue = {
   setInput: (value: string) => void;
   isGenerating: boolean;
   onSend: () => void;
+  /** Send a specific message immediately (e.g. a finished voice transcript). */
+  sendText?: (text: string) => void;
   streamingStore: StreamingStore;
   error?: Error | null;
 };

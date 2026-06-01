@@ -9,6 +9,7 @@ import {
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputVoiceButton,
   StreamingMessage,
   ToolCall,
   createStreamingStore,
@@ -27,6 +28,10 @@ import * as Haptics from "expo-haptics";
 import { Link, useLocalSearchParams } from "expo-router";
 import { Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useDeviceLocation,
+  type DeviceLocation,
+} from "@/utils/use-device-location";
 
 const USE_MOCK = process.env.EXPO_PUBLIC_MOCK_AI === "1";
 
@@ -101,7 +106,7 @@ function getToolsFromParts(parts: RawPart[]): ChatToolPart[] {
     }));
 }
 
-function useAIChat(inspectionId?: string) {
+function useAIChat(inspectionId?: string, deviceLocation?: DeviceLocation) {
   const [input, setInput] = useState("");
   const streamingStore = useMemo(() => createStreamingStore(), []);
   const prevStreamingTextRef = useRef("");
@@ -114,8 +119,13 @@ function useAIChat(inspectionId?: string) {
     () =>
       new DefaultChatTransport({
         api: chatApiUrl(),
-        // When an inspection is active, the server fills/completes it via tools.
-        body: inspectionId ? { inspectionId } : undefined,
+        // The server reads inspectionId (assist mode) plus device GPS + clock so its
+        // getCurrentLocation / getWeather / getCurrentDateTime tools have real values.
+        body: {
+          ...(inspectionId ? { inspectionId } : {}),
+          ...(deviceLocation ? { location: deviceLocation } : {}),
+          deviceTime: new Date().toISOString(),
+        },
         fetch: (async (url: string, options?: RequestInit) => {
           const token = await getToken();
           const headers = {
@@ -125,7 +135,7 @@ function useAIChat(inspectionId?: string) {
           return expoFetch(url, { ...options, headers } as never);
         }) as unknown as typeof globalThis.fetch,
       }),
-    [getToken, inspectionId],
+    [getToken, inspectionId, deviceLocation],
   );
 
   const {
@@ -180,12 +190,26 @@ function useAIChat(inspectionId?: string) {
     setInput("");
   }, [input, isStreaming, sendMessage]);
 
+  // Send an explicit message (used by the voice button so it doesn't depend on
+  // the debounced `input` state being flushed first).
+  const sendText = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t || isStreaming) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      sendMessage({ text: t });
+      setInput("");
+    },
+    [isStreaming, sendMessage],
+  );
+
   return {
     messages,
     input,
     setInput,
     isGenerating: isStreaming,
     onSend,
+    sendText,
     streamingStore,
     error: error ?? null,
   };
@@ -309,8 +333,10 @@ export default function ChatScreen() {
   const params = useLocalSearchParams<{ inspectionId?: string }>();
   const inspectionId =
     typeof params.inspectionId === "string" ? params.inspectionId : undefined;
+  // Device GPS (reverse-geocoded on-device) sent with each chat request.
+  const deviceLocation = useDeviceLocation();
   // Call both hooks unconditionally (rules-of-hooks); select by the build-time flag.
-  const aiChat = useAIChat(inspectionId);
+  const aiChat = useAIChat(inspectionId, deviceLocation);
   const mockChat = useMockChat();
   const chat = USE_MOCK ? mockChat : aiChat;
   const { isGenerating, streamingStore } = chat;
@@ -352,6 +378,7 @@ export default function ChatScreen() {
                 <Icon icon={Plus} className="w-5 h-5 text-muted-foreground" />
               </PromptInputAction>
             </Link>
+            <PromptInputVoiceButton />
             <PromptInputBody>
               <PromptInputTextarea />
               <PromptInputSubmit />

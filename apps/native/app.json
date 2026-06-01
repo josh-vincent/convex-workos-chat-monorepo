@@ -46,7 +46,20 @@
       "expo-image",
       "expo-web-browser",
       "expo-system-ui",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to GPS-tag inspections and fetch local weather."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to use the microphone for voice-to-text input.",
+          "speechRecognitionPermission": "Allow $(PRODUCT_NAME) to recognise speech for hands-free inspection entry."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
