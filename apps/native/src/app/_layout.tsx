@@ -229,6 +229,8 @@ function StackLayout() {
         name="inspection/[id]"
         options={{ headerShown: false }}
       />
+      <Stack.Screen name="actions" options={{ title: "Actions" }} />
+      <Stack.Screen name="registers" options={{ title: "Registers" }} />
     </Stack>
   );
 }
