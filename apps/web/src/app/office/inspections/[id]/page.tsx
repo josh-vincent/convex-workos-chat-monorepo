@@ -20,6 +20,7 @@ import {
   formatAnswer,
   formatDate,
 } from "@/lib/beacon-ui";
+import { useBeacon } from "@/hooks/useBeacon";
 
 type Question = { id: string; label: string; type: string };
 type Section = { id?: string; title: string; questions: Question[] };
@@ -173,46 +174,70 @@ function CompliancePackPanel({
 
 // ── SWMS share button ─────────────────────────────────────────────────────────
 //
-// Requires a principalContractorId (Id<"contracts">). There is currently no
-// contracts.list query in the backend, so we fall back gracefully with a clear
-// message if no contract is available. When a contracts.listByOrg query is
-// added, replace `firstContract` below with the query result.
+// Queries contracts.listByOrg for the org, lets the user pick a principal
+// contractor (or defaults to the first), then calls swms.shareToPrincipal.
+// If the org has no contracts, shows a graceful message plus a one-click
+// "Create a demo contract" affordance.
 
 function SwmsShareButton({
   inspectionId,
   swmsSharedAt,
+  orgId,
 }: {
   inspectionId: Id<"inspections">;
   swmsSharedAt?: number;
+  orgId: Id<"organizations"> | null | undefined;
 }) {
   const share = useMutation(api.swms.shareToPrincipal);
+  const createContract = useMutation(api.contracts.create);
   const [sharing, setSharing] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [sharedAt, setSharedAt] = useState<number | undefined>(swmsSharedAt);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<Id<"contracts"> | "">("");
 
-  // No contracts.list in the backend yet — handle gracefully.
-  const firstContract: Id<"contracts"> | undefined = undefined;
+  const contracts = useQuery(
+    api.contracts.listByOrg,
+    orgId ? { orgId } : "skip",
+  );
+
+  // Once contracts load, seed the selector to the first entry.
+  const firstContract = contracts?.[0];
+  const effectiveId: Id<"contracts"> | undefined =
+    (selectedId as Id<"contracts"> | "") || firstContract?._id;
 
   const handleShare = async () => {
-    if (sharing) return;
+    if (sharing || !effectiveId) return;
     setSharing(true);
     setError(null);
     try {
-      if (!firstContract) {
-        setError(
-          "No principal contractor on record. Attach a contract to this org to enable sharing.",
-        );
-        return;
-      }
       const result = await share({
         inspectionId,
-        principalContractorId: firstContract,
+        principalContractorId: effectiveId,
       });
       setSharedAt(result.sharedAt);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to share.");
     } finally {
       setSharing(false);
+    }
+  };
+
+  const handleCreateDemo = async () => {
+    if (creating || !orgId) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await createContract({
+        orgId,
+        name: "Demo Principal Contractor",
+        status: "active",
+      });
+      // contracts query will re-run reactively; selector will populate.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create contract.");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -225,18 +250,65 @@ function SwmsShareButton({
     );
   }
 
+  // Still loading
+  if (contracts === undefined) {
+    return (
+      <div className="h-9 w-52 animate-pulse rounded-lg bg-neutral-100" />
+    );
+  }
+
+  // No contracts in this org
+  if (contracts.length === 0) {
+    return (
+      <div className="flex flex-col items-start gap-1.5">
+        <p className="max-w-xs text-xs text-muted-foreground">
+          No principal contractor on record.
+        </p>
+        <button
+          type="button"
+          onClick={handleCreateDemo}
+          disabled={creating || !orgId}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+        >
+          <Share2 className="h-4 w-4" />
+          {creating ? "Creating…" : "Create a demo contract"}
+        </button>
+        {error && <p className="max-w-xs text-xs text-rose-600">{error}</p>}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-start gap-1">
-      <button
-        type="button"
-        onClick={handleShare}
-        disabled={sharing}
-        className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-      >
-        <Share2 className="h-4 w-4" />
-        {sharing ? "Sharing…" : "Share with principal contractor"}
-      </button>
-      {error && <p className="max-w-xs text-xs text-amber-700">{error}</p>}
+    <div className="flex flex-col items-start gap-1.5">
+      <div className="flex items-center gap-2">
+        {contracts.length > 1 && (
+          <select
+            value={selectedId || firstContract?._id}
+            onChange={(e) => setSelectedId(e.target.value as Id<"contracts">)}
+            className="input rounded-lg border border-border bg-white px-2 py-1.5 text-sm text-neutral-700"
+          >
+            {contracts.map((c) => (
+              <option key={c._id} value={c._id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={handleShare}
+          disabled={sharing || !effectiveId}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+        >
+          <Share2 className="h-4 w-4" />
+          {sharing
+            ? "Sharing…"
+            : contracts.length === 1
+              ? `Share with ${firstContract?.name}`
+              : "Share with principal contractor"}
+        </button>
+      </div>
+      {error && <p className="max-w-xs text-xs text-rose-600">{error}</p>}
     </div>
   );
 }
@@ -246,6 +318,7 @@ function SwmsShareButton({
 export default function InspectionDetailPage() {
   const params = useParams<{ id: string }>();
   const inspectionId = params.id as Id<"inspections">;
+  const beacon = useBeacon();
   const complete = useMutation(api.inspections.complete);
   const generateReport = useAction(api.reports.generate);
   const [completing, setCompleting] = useState(false);
@@ -408,6 +481,7 @@ export default function InspectionDetailPage() {
               <SwmsShareButton
                 inspectionId={inspectionId}
                 swmsSharedAt={inspection.swmsSharedAt}
+                orgId={beacon?.orgId}
               />
               <button
                 type="button"
