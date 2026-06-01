@@ -21,6 +21,7 @@ import {
   selectAssistantModel,
   weatherLabel,
   computeOutstanding,
+  pickContextAnswers,
 } from "./lib/assistant";
 
 /**
@@ -162,33 +163,6 @@ type FormQuestion = {
   min?: number;
   max?: number;
 };
-
-/** Pick a sensible default answer for the scripted (offline) agent. */
-function defaultAnswer(q: FormQuestion): unknown {
-  switch (q.type) {
-    case "passFailNA":
-    case "question":
-      return "pass";
-    case "checkbox":
-      return true;
-    case "multipleChoice":
-    case "list":
-      return ((q.options ?? []).find((o) => !o.flag) ?? q.options?.[0])?.label;
-    case "number":
-    case "temperature":
-    case "slider":
-      return q.min != null && q.max != null
-        ? Math.round((q.min + q.max) / 2)
-        : (q.min ?? 0);
-    case "date":
-    case "datetime":
-      return new Date().toISOString().slice(0, 10);
-    case "text":
-      return "OK — checked, no issues.";
-    default:
-      return undefined; // instruction / signature / photo / media / etc. — skip
-  }
-}
 
 /**
  * The assistant's full tool set. Fill tools accept an optional `inspectionId`
@@ -540,10 +514,18 @@ const INSPECTION_SYSTEM_PROMPT = [
   "7. Be brief and field-friendly. Confirm what you recorded, then ask for what's still needed.",
 ].join("\n");
 
-/** Scripted (offline) agent: fill the form via real mutations, narrating tool calls. */
-async function scriptedFill(
+/**
+ * Demo assistant used when AI_GATEWAY_API_KEY is absent. It mirrors the live
+ * (model-driven) behaviour without a model: it pulls the device location and
+ * weather (mocked to Melbourne / fine when the device sent none), records ONLY
+ * the site & weather questions from those tool results (tool-derived, not
+ * fabricated), then lists the required fields the user still has to provide.
+ * The real model path runs when the gateway key is set.
+ */
+async function scriptedAssistant(
   ctx: ActionCtx,
   inspectionId: Id<"inspections">,
+  device: DeviceContext,
   writer: { write: (chunk: UIMessageChunk) => void },
 ) {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -551,9 +533,21 @@ async function scriptedFill(
     writer.write({ type: "text-start", id });
     for (const c of body.split(/(?<=\s)/)) {
       writer.write({ type: "text-delta", id, delta: c });
-      await sleep(15);
+      await sleep(12);
     }
     writer.write({ type: "text-end", id });
+  };
+  const toolCard = async (
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    output: unknown,
+    delay = 280,
+  ) => {
+    writer.write({ type: "tool-input-start", toolCallId: id, toolName: name });
+    writer.write({ type: "tool-input-available", toolCallId: id, toolName: name, input });
+    await sleep(delay);
+    writer.write({ type: "tool-output-available", toolCallId: id, output });
   };
 
   const form = await ctx.runQuery(api.inspections.get, { inspectionId });
@@ -561,51 +555,71 @@ async function scriptedFill(
     await text("err", "I couldn't find that inspection.");
     return;
   }
-  await text("intro", `On it — completing **${form.templateName}**.\n`);
+  await text(
+    "intro",
+    `On it — let me check your location and the weather for **${form.templateName}**.\n`,
+  );
 
-  const c0 = "t_read";
-  writer.write({ type: "tool-input-start", toolCallId: c0, toolName: "getInspectionForm" });
-  writer.write({ type: "tool-input-available", toolCallId: c0, toolName: "getInspectionForm", input: {} });
-  await sleep(300);
   const questions = (form.sections as { questions: FormQuestion[] }[]).flatMap(
     (s) => s.questions,
   );
-  writer.write({ type: "tool-output-available", toolCallId: c0, output: { questions: questions.length } });
+  await toolCard("t_form", "getInspectionForm", {}, { questions: questions.length });
 
-  let n = 0;
-  for (const q of questions) {
-    const value = defaultAnswer(q);
-    if (value === undefined) continue;
-    const cid = `t_set_${n++}`;
+  // Location (mocked Melbourne unless the device provided one) + fine weather.
+  const location = device.location ?? {
+    lat: -37.8136,
+    lng: 144.9631,
+    address: "Melbourne VIC, Australia",
+  };
+  const address = location.address ?? "Melbourne VIC, Australia";
+  await toolCard("t_loc", "getCurrentLocation", {}, { ...location, address });
+  const weather = { temperatureC: 18, condition: "Fine" };
+  await toolCard(
+    "t_wx",
+    "getWeather",
+    { lat: location.lat, lng: location.lng },
+    weather,
+  );
+
+  // Record ONLY the site/weather questions from those tool results.
+  const ctxAnswers = pickContextAnswers(form.sections as never, {
+    address,
+    condition: weather.condition,
+    temperatureC: weather.temperatureC,
+  });
+  let i = 0;
+  for (const a of ctxAnswers) {
+    const label = questions.find((q) => q.id === a.questionId)?.label ?? a.questionId;
+    const cid = `t_set_${i++}`;
     writer.write({ type: "tool-input-start", toolCallId: cid, toolName: "setAnswer" });
     writer.write({
       type: "tool-input-available",
       toolCallId: cid,
       toolName: "setAnswer",
-      input: { questionId: q.id, label: q.label, value },
+      input: { questionId: a.questionId, label, value: a.value },
     });
     await ctx.runMutation(api.inspections.setAnswer, {
       inspectionId,
-      questionId: q.id,
-      value,
+      questionId: a.questionId,
+      value: a.value,
     });
     await sleep(110);
     writer.write({ type: "tool-output-available", toolCallId: cid, output: { ok: true } });
   }
 
-  const cc = "t_complete";
-  writer.write({ type: "tool-input-start", toolCallId: cc, toolName: "completeInspection" });
-  writer.write({ type: "tool-input-available", toolCallId: cc, toolName: "completeInspection", input: {} });
-  const res = await ctx.runMutation(api.inspections.complete, { inspectionId });
-  await sleep(300);
-  writer.write({
-    type: "tool-output-available",
-    toolCallId: cc,
-    output: { score: res.score, actionsCreated: res.actionsCreated },
-  });
+  const fresh = await ctx.runQuery(api.inspections.get, { inspectionId });
+  const outstanding = computeOutstanding(
+    (fresh?.sections ?? []) as Parameters<typeof computeOutstanding>[0],
+    (fresh?.inspection.responses ?? []) as Parameters<typeof computeOutstanding>[1],
+  );
+  await toolCard("t_out", "getOutstandingRequired", {}, outstanding);
+
+  const remaining = outstanding.outstanding.slice(0, 6).map((o) => o.label).join(", ");
   await text(
     "outro",
-    `\nDone — answered ${n} item(s), scored **${res.score ?? "—"}%**, created ${res.actionsCreated} corrective action(s).`,
+    `\nYou're at **${address}** and conditions are **${weather.condition}, ${weather.temperatureC}°C** — ` +
+      "I've recorded the site and weather from that. I won't fill anything you haven't told me, " +
+      `so I still need: **${remaining || "nothing — you're all set"}**. Tell me and I'll add them.`,
   );
 }
 
@@ -656,7 +670,8 @@ http.route({
         return result.toUIMessageStreamResponse({ headers: streamHeaders });
       }
       const stream = createUIMessageStream({
-        execute: async ({ writer }) => scriptedFill(ctx, inspectionId, writer),
+        execute: async ({ writer }) =>
+          scriptedAssistant(ctx, inspectionId, device, writer),
       });
       return createUIMessageStreamResponse({ stream, headers: streamHeaders });
     }

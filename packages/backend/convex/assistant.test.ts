@@ -30,6 +30,7 @@ import {
   hasImageContent,
   selectAssistantModel,
   weatherLabel,
+  pickContextAnswers,
 } from "./lib/assistant";
 
 const modules = import.meta.glob(
@@ -119,6 +120,29 @@ describe("assistant pure helpers", () => {
       { questionId: "q_note", value: "all good" },
     ]);
     expect(done.allDone).toBe(true);
+  });
+
+  test("pickContextAnswers maps Melbourne + fine weather onto site/weather questions", () => {
+    const sections = [
+      {
+        questions: [
+          { id: "q_site", label: "Select site", type: "siteSelect" },
+          { id: "q_wx", label: "Weather / ground conditions", type: "text" },
+          { id: "q_ppe", label: "All workers in correct PPE", type: "passFailNA" },
+        ],
+      },
+    ];
+    const picked = pickContextAnswers(sections, {
+      address: "Melbourne VIC, Australia",
+      condition: "Fine",
+      temperatureC: 18,
+    });
+    expect(picked).toEqual([
+      { questionId: "q_site", value: "Melbourne VIC, Australia" },
+      { questionId: "q_wx", value: "Fine, 18°C" },
+    ]);
+    // It never touches subjective checks like PPE.
+    expect(picked.find((p) => p.questionId === "q_ppe")).toBeUndefined();
   });
 
   test("computeOutstanding respects visibleWhen (hidden required not counted)", () => {

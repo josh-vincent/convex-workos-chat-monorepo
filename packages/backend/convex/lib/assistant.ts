@@ -86,3 +86,35 @@ export function computeOutstanding(
   }
   return { outstanding, count: outstanding.length, allDone: outstanding.length === 0 };
 }
+
+type ContextAnswerQuestion = { id: string; label: string; type: string };
+type ContextAnswerSection = { questions: ContextAnswerQuestion[] };
+
+/**
+ * Map tool-derived context (GPS address + weather) onto the form's site and
+ * weather/conditions questions. These are legitimately recordable (a tool
+ * produced them) — unlike subjective checks, which the assistant must ask about.
+ * Used by the no-key demo assistant and reusable by the live path.
+ */
+export function pickContextAnswers(
+  sections: ContextAnswerSection[],
+  context: { address?: string; condition?: string; temperatureC?: number },
+): { questionId: string; value: string }[] {
+  const out: { questionId: string; value: string }[] = [];
+  const weatherValue =
+    context.condition && context.temperatureC != null
+      ? `${context.condition}, ${Math.round(context.temperatureC)}°C`
+      : context.condition;
+  for (const section of sections) {
+    for (const q of section.questions) {
+      if (q.type === "instruction") continue;
+      const label = q.label.toLowerCase();
+      if (/weather|conditions|ground/.test(label) && weatherValue) {
+        out.push({ questionId: q.id, value: weatherValue });
+      } else if (/\bsite\b|location/.test(label) && context.address) {
+        out.push({ questionId: q.id, value: context.address });
+      }
+    }
+  }
+  return out;
+}
