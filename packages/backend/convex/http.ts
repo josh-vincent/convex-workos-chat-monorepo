@@ -4,6 +4,7 @@ import { SignJWT, importPKCS8 } from "jose";
 import {
   convertToModelMessages,
   streamText,
+  generateText,
   stepCountIs,
   tool,
   createUIMessageStream,
@@ -15,19 +16,12 @@ import { z } from "zod";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
-
-// Example tool the model can call when AI_GATEWAY_API_KEY is set.
-const chatTools = {
-  getWeather: tool({
-    description: "Get the current weather for a city.",
-    inputSchema: z.object({ city: z.string().describe("City name") }),
-    execute: async ({ city }) => ({
-      city,
-      temperatureC: 18,
-      condition: "Foggy",
-    }),
-  }),
-};
+import {
+  SONNET_MODEL,
+  selectAssistantModel,
+  weatherLabel,
+  computeOutstanding,
+} from "./lib/assistant";
 
 /**
  * Mock "guest" auth endpoint.
@@ -50,8 +44,16 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-// Default chat model, routed through the Vercel AI Gateway (AI SDK v5).
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "anthropic/claude-haiku-4.5";
+// Models/helpers live in ./lib/assistant (pure, unit-tested). Haiku is the everyday
+// driver; Sonnet is used when an image/attachment is in play (vision), and
+// reviewPhotos always analyses with Sonnet internally.
+const INSPECTION_MAX_STEPS = 40;
+
+/** Per-request device context the client sends alongside messages. */
+type DeviceContext = {
+  location?: { lat: number; lng: number; address?: string };
+  deviceTime?: string;
+};
 
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 
@@ -188,17 +190,34 @@ function defaultAnswer(q: FormQuestion): unknown {
   }
 }
 
-/** AI SDK tools the model uses to complete an inspection (real-model path). */
-function inspectionTools(ctx: ActionCtx, inspectionId: Id<"inspections">) {
+/**
+ * The assistant's full tool set. Fill tools accept an optional `inspectionId`
+ * (falling back to the one from the request body) so a session can start a new
+ * inspection mid-conversation and immediately fill it. The assistant must only
+ * record values the user stated or that a tool produced — never fabricate.
+ * Exported so unit tests can drive each tool's `execute` directly.
+ */
+export function assistantTools(
+  ctx: ActionCtx,
+  defaultInspectionId: Id<"inspections"> | undefined,
+  device: DeviceContext,
+) {
+  const resolveId = (arg?: string): Id<"inspections"> | null =>
+    (arg as Id<"inspections"> | undefined) ?? defaultInspectionId ?? null;
+
   return {
+    // --- Inspection fill ---------------------------------------------------
     getInspectionForm: tool({
       description:
-        "Read the active inspection: questions (id, label, type, options) and answers so far.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        const f = await ctx.runQuery(api.inspections.get, { inspectionId });
+        "Read an inspection: questions (id, label, type, required, options) and answers so far.",
+      inputSchema: z.object({ inspectionId: z.string().optional() }),
+      execute: async ({ inspectionId }) => {
+        const id = resolveId(inspectionId);
+        if (!id) return { error: "No inspection selected. Start one first." };
+        const f = await ctx.runQuery(api.inspections.get, { inspectionId: id });
         return f
           ? {
+              inspectionId: id,
               name: f.templateName,
               sections: f.sections,
               responses: f.inspection.responses,
@@ -208,18 +227,23 @@ function inspectionTools(ctx: ActionCtx, inspectionId: Id<"inspections">) {
     }),
     setAnswer: tool({
       description:
-        "Record one answer by the question's id. value matches the type " +
-        "(passFailNA: 'pass'|'fail'|'na'; checkbox: boolean; number/temperature: number; " +
-        "multipleChoice/list: an option label; text/date: string).",
+        "Record ONE answer the user actually stated (or a tool produced). Never guess. " +
+        "value matches the type (passFailNA/question: 'pass'|'fail'|'na'; checkbox: boolean; " +
+        "number/temperature: number; multipleChoice/list: an option label; text/date: string; " +
+        "controlMeasure: {hazard,riskRating,controlLevel,control}). Set flagged:true with a note " +
+        "when the answer represents a failure or out-of-range reading.",
       inputSchema: z.object({
+        inspectionId: z.string().optional(),
         questionId: z.string(),
         value: z.any(),
         note: z.string().optional(),
         flagged: z.boolean().optional(),
       }),
-      execute: async ({ questionId, value, note, flagged }) => {
+      execute: async ({ inspectionId, questionId, value, note, flagged }) => {
+        const id = resolveId(inspectionId);
+        if (!id) return { error: "No inspection selected." };
         await ctx.runMutation(api.inspections.setAnswer, {
-          inspectionId,
+          inspectionId: id,
           questionId,
           value,
           note,
@@ -228,14 +252,293 @@ function inspectionTools(ctx: ActionCtx, inspectionId: Id<"inspections">) {
         return { ok: true };
       },
     }),
+    getOutstandingRequired: tool({
+      description:
+        "List required questions still unanswered (respecting conditional visibility). " +
+        "Call this after recording stated answers, then ask the user for what's left.",
+      inputSchema: z.object({ inspectionId: z.string().optional() }),
+      execute: async ({ inspectionId }) => {
+        const id = resolveId(inspectionId);
+        if (!id) return { error: "No inspection selected." };
+        const f = await ctx.runQuery(api.inspections.get, { inspectionId: id });
+        if (!f) return { error: "not found" };
+        return computeOutstanding(
+          f.sections as Parameters<typeof computeOutstanding>[0],
+          f.inspection.responses as Parameters<typeof computeOutstanding>[1],
+        );
+      },
+    }),
     completeInspection: tool({
-      description: "Finish and score the inspection once questions are answered.",
+      description:
+        "Finish and score the inspection. ONLY call this once getOutstandingRequired returns " +
+        "allDone AND the user has explicitly asked to submit/complete/finish.",
+      inputSchema: z.object({ inspectionId: z.string().optional() }),
+      execute: async ({ inspectionId }) => {
+        const id = resolveId(inspectionId);
+        if (!id) return { error: "No inspection selected." };
+        return await ctx.runMutation(api.inspections.complete, { inspectionId: id });
+      },
+    }),
+    reviewPhotos: tool({
+      description:
+        "Analyse photos already attached to the inspection for hazards, PPE compliance and " +
+        "defects, and suggest answers. Use only when the user asks for a visual review.",
+      inputSchema: z.object({
+        inspectionId: z.string().optional(),
+        maxPhotos: z.number().optional(),
+      }),
+      execute: async ({ inspectionId, maxPhotos }) => {
+        const id = resolveId(inspectionId);
+        if (!id) return { error: "No inspection selected." };
+        const cap = Math.min(maxPhotos ?? 5, 10);
+        const f = await ctx.runQuery(api.inspections.get, { inspectionId: id });
+        if (!f) return { error: "not found" };
+        const mediaIds: Id<"media">[] = [];
+        for (const r of f.inspection.responses as { mediaIds?: Id<"media">[] }[]) {
+          for (const m of r.mediaIds ?? []) {
+            if (mediaIds.length >= cap) break;
+            mediaIds.push(m);
+          }
+          if (mediaIds.length >= cap) break;
+        }
+        if (mediaIds.length === 0)
+          return { findings: "No photos are attached to this inspection yet." };
+        const rows = await ctx.runQuery(api.media.urls, { ids: mediaIds });
+        const images: { type: "image"; image: Uint8Array; mediaType: string }[] = [];
+        for (const row of rows) {
+          if (!row.url || row.kind === "doc") continue;
+          try {
+            const res = await fetch(row.url);
+            const buf = await res.arrayBuffer();
+            if (buf.byteLength > 4_000_000) continue; // skip oversized
+            images.push({
+              type: "image",
+              image: new Uint8Array(buf),
+              mediaType: res.headers.get("content-type") ?? "image/jpeg",
+            });
+          } catch {
+            /* skip unreadable blob */
+          }
+        }
+        if (images.length === 0) return { findings: "Could not load the attached photos." };
+        const { text: findings } = await generateText({
+          model: SONNET_MODEL,
+          messages: [
+            {
+              role: "user",
+              content: [
+                ...images,
+                {
+                  type: "text",
+                  text:
+                    `You are a safety inspection expert. Analyse these ${images.length} ` +
+                    "inspection photo(s) and report, concisely: (1) visible hazards or " +
+                    "non-compliance, (2) PPE status, (3) equipment defects/damage, " +
+                    "(4) suggested pass/fail answers for likely questions. Do not invent " +
+                    "details you cannot see.",
+                },
+              ],
+            },
+          ],
+        });
+        return { findings, photosAnalyzed: images.length };
+      },
+    }),
+
+    // --- Device context ----------------------------------------------------
+    getCurrentLocation: tool({
+      description:
+        "The device's current GPS coordinates and address (captured by the device for this request).",
       inputSchema: z.object({}),
       execute: async () =>
-        await ctx.runMutation(api.inspections.complete, { inspectionId }),
+        device.location
+          ? {
+              lat: device.location.lat,
+              lng: device.location.lng,
+              address: device.location.address ?? null,
+            }
+          : { error: "Location unavailable — ask the user to enable location, or for the site." },
+    }),
+    getCurrentDateTime: tool({
+      description: "The current date/time (ISO-8601) from the device clock. Use for date questions.",
+      inputSchema: z.object({}),
+      execute: async () => ({ iso: device.deviceTime ?? new Date().toISOString() }),
+    }),
+    getWeather: tool({
+      description:
+        "Real current weather for coordinates (get them from getCurrentLocation first).",
+      inputSchema: z.object({ lat: z.number(), lng: z.number() }),
+      execute: async ({ lat, lng }) => {
+        try {
+          const url =
+            `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+            "&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m" +
+            "&temperature_unit=celsius&wind_speed_unit=kmh";
+          const res = await fetch(url);
+          if (!res.ok) return { error: `Weather API error: ${res.status}` };
+          const data = (await res.json()) as {
+            current: {
+              temperature_2m: number;
+              weather_code: number;
+              wind_speed_10m: number;
+              relative_humidity_2m: number;
+            };
+          };
+          return {
+            temperatureC: data.current.temperature_2m,
+            condition: weatherLabel(data.current.weather_code),
+            windSpeedKmh: data.current.wind_speed_10m,
+            humidityPct: data.current.relative_humidity_2m,
+          };
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "weather lookup failed" };
+        }
+      },
+    }),
+
+    // --- Inspection discovery ----------------------------------------------
+    findTemplates: tool({
+      description:
+        "Search inspection templates by name or industry keyword. Use to answer " +
+        "'which inspection am I doing?' when it can't be inferred.",
+      inputSchema: z.object({ query: z.string() }),
+      execute: async ({ query }) => {
+        const me = await ctx.runQuery(api.me.current, {});
+        if (!me?.orgId) return { error: "Not authenticated to an org." };
+        const all = await ctx.runQuery(api.templates.list, { orgId: me.orgId });
+        const q = query.toLowerCase();
+        const matches = all
+          .filter(
+            (t) =>
+              t.name.toLowerCase().includes(q) ||
+              (t.industry ?? "").toLowerCase().includes(q),
+          )
+          .slice(0, 8)
+          .map((t) => ({ id: t._id, name: t.name, industry: t.industry }));
+        return { templates: matches, count: matches.length };
+      },
+    }),
+    startInspection: tool({
+      description:
+        "Start a new inspection from a template id (from findTemplates). Returns the new " +
+        "inspectionId — use it for subsequent setAnswer calls.",
+      inputSchema: z.object({ templateId: z.string() }),
+      execute: async ({ templateId }) => {
+        const me = await ctx.runQuery(api.me.current, {});
+        if (!me?.orgId || !me.userId)
+          return { error: "Not authenticated — reload and try again." };
+        const id = await ctx.runMutation(api.inspections.start, {
+          orgId: me.orgId,
+          templateId: templateId as Id<"templates">,
+          inspectorId: me.userId,
+        });
+        return { inspectionId: id };
+      },
+    }),
+
+    // --- Safety actions ----------------------------------------------------
+    checkCurrency: tool({
+      description:
+        "Check register currency (licences, competencies, SDS, insurance, inductions) — " +
+        "warns about expired / expiring-soon / review-due items.",
+      inputSchema: z.object({ registerType: z.string().optional() }),
+      execute: async ({ registerType }) => {
+        const me = await ctx.runQuery(api.me.current, {});
+        if (!me?.orgId) return { error: "Not authenticated." };
+        const entries = await ctx.runQuery(api.registers.list, { orgId: me.orgId });
+        const list = registerType
+          ? entries.filter((e) => e.registerType === registerType)
+          : entries;
+        const urgent = list
+          .filter((e) => e.status && e.status !== "current")
+          .map((e) => ({
+            label: e.label,
+            type: e.registerType,
+            status: e.status,
+            expiresAt: e.expiresAt ?? null,
+          }));
+        return { total: list.length, urgent, urgentCount: urgent.length };
+      },
+    }),
+    raiseAction: tool({
+      description: "Create a corrective action / safety task.",
+      inputSchema: z.object({
+        title: z.string(),
+        description: z.string().optional(),
+        priority: z.enum(["low", "medium", "high", "critical"]),
+      }),
+      execute: async ({ title, description, priority }) => {
+        const me = await ctx.runQuery(api.me.current, {});
+        if (!me?.orgId) return { error: "Not authenticated." };
+        const actionId = await ctx.runMutation(api.actions.create, {
+          orgId: me.orgId,
+          title,
+          description,
+          priority,
+        });
+        return { actionId };
+      },
+    }),
+    reportIncident: tool({
+      description:
+        "Report a workplace incident. Set notifiable:true for regulator-reportable events.",
+      inputSchema: z.object({
+        incidentType: z.enum(["injury", "near_miss", "dangerous_occurrence", "illness"]),
+        description: z.string(),
+        notifiable: z.boolean(),
+        occurredAt: z.string().describe("ISO-8601 datetime"),
+      }),
+      execute: async ({ incidentType, description, notifiable, occurredAt }) => {
+        const me = await ctx.runQuery(api.me.current, {});
+        if (!me?.orgId) return { error: "Not authenticated." };
+        const parsed = Date.parse(occurredAt);
+        const issueId = await ctx.runMutation(api.incidents.report, {
+          orgId: me.orgId,
+          incidentType,
+          description,
+          notifiable,
+          occurredAt: Number.isNaN(parsed) ? Date.now() : parsed,
+          reportedBy: me.userId ?? undefined,
+        });
+        return { issueId, notifiable };
+      },
+    }),
+    lookupAsset: tool({
+      description: "Look up an asset/plant item by its QR code string.",
+      inputSchema: z.object({ qrCode: z.string() }),
+      execute: async ({ qrCode }) => {
+        const me = await ctx.runQuery(api.me.current, {});
+        if (!me?.orgId) return { error: "Not authenticated." };
+        const asset = await ctx.runQuery(api.assets.getByQr, {
+          orgId: me.orgId,
+          qrCode,
+        });
+        return asset ?? { error: "Asset not found." };
+      },
     }),
   };
 }
+
+/** System prompt for the disciplined, assisted-fill inspection assistant. */
+const INSPECTION_SYSTEM_PROMPT = [
+  "You are a field safety inspection assistant. You help technicians complete inspections by",
+  "recording exactly what they tell you — you NEVER invent, guess, or auto-fill answers.",
+  "",
+  "Rules you must follow without exception:",
+  "1. Only call setAnswer for a value the user explicitly stated, or that a tool produced",
+  "   (getCurrentLocation, getWeather, getCurrentDateTime, reviewPhotos). Never fabricate.",
+  "2. After recording everything the user gave you, call getOutstandingRequired. If anything",
+  "   remains, ask ONE concise message listing the remaining required fields by label, and wait",
+  "   for the user's reply before recording more.",
+  "3. If there is no current inspection and you can't infer which one, ask: \"Which inspection",
+  "   are you performing?\" then use findTemplates and startInspection.",
+  "4. Only call completeInspection after getOutstandingRequired reports allDone AND the user has",
+  "   explicitly said to submit/complete/finish.",
+  "5. For a failing or out-of-range answer, include a short note and set flagged:true.",
+  "6. Use getCurrentDateTime for date questions and getCurrentLocation/getWeather for site and",
+  "   weather/conditions questions rather than guessing.",
+  "7. Be brief and field-friendly. Confirm what you recorded, then ask for what's still needed.",
+].join("\n");
 
 /** Scripted (offline) agent: fill the form via real mutations, narrating tool calls. */
 async function scriptedFill(
@@ -327,24 +630,28 @@ http.route({
     const body = (await request.json()) as {
       messages: UIMessage[];
       inspectionId?: string;
+      location?: { lat: number; lng: number; address?: string };
+      deviceTime?: string;
     };
     const messages = body.messages;
     const hasKey = !!process.env.AI_GATEWAY_API_KEY;
+    const device: DeviceContext = {
+      location: body.location,
+      deviceTime: body.deviceTime,
+    };
+    // Haiku by default; escalate to Sonnet when the turn carries an image/attachment.
+    const model = selectAssistantModel(messages);
 
     // Inspection-assist mode: the technician is completing a form via chat.
     if (body.inspectionId) {
       const inspectionId = body.inspectionId as Id<"inspections">;
       if (hasKey) {
         const result = streamText({
-          model: CHAT_MODEL,
-          system:
-            "You are a field safety assistant completing an inspection. Call " +
-            "getInspectionForm to read the questions (ids + types), then setAnswer " +
-            "for each (value must match the type), then completeInspection and report " +
-            "the score. If the user describes findings, reflect them in the answers.",
+          model,
+          system: INSPECTION_SYSTEM_PROMPT,
           messages: convertToModelMessages(messages),
-          tools: inspectionTools(ctx, inspectionId),
-          stopWhen: stepCountIs(12),
+          tools: assistantTools(ctx, inspectionId, device),
+          stopWhen: stepCountIs(INSPECTION_MAX_STEPS),
         });
         return result.toUIMessageStreamResponse({ headers: streamHeaders });
       }
@@ -418,7 +725,7 @@ http.route({
           await streamText_(
             writer,
             "outro",
-            "\nThe weather call succeeded; the order lookup errored (demo). " + reply,
+            `\nThe weather call succeeded; the order lookup errored (demo). ${reply}`,
           );
         },
       });
@@ -426,10 +733,11 @@ http.route({
     }
 
     const result = streamText({
-      model: CHAT_MODEL,
-      system: "You are a helpful, concise assistant.",
+      model,
+      system: INSPECTION_SYSTEM_PROMPT,
       messages: convertToModelMessages(messages),
-      tools: chatTools,
+      tools: assistantTools(ctx, undefined, device),
+      stopWhen: stepCountIs(INSPECTION_MAX_STEPS),
     });
 
     return result.toUIMessageStreamResponse({ headers: streamHeaders });

@@ -10,6 +10,7 @@
 
 import type * as actions from "../actions.js";
 import type * as analytics from "../analytics.js";
+import type * as assets from "../assets.js";
 import type * as compliance from "../compliance.js";
 import type * as compliancePack from "../compliancePack.js";
 import type * as compliancePackData from "../compliancePackData.js";
@@ -25,6 +26,7 @@ import type * as inspections from "../inspections.js";
 import type * as issues from "../issues.js";
 import type * as jobs from "../jobs.js";
 import type * as jurisdiction from "../jurisdiction.js";
+import type * as lib_assistant from "../lib/assistant.js";
 import type * as lib_buildInspectionPdf from "../lib/buildInspectionPdf.js";
 import type * as lib_currency from "../lib/currency.js";
 import type * as lib_gates from "../lib/gates.js";
@@ -64,6 +66,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   actions: typeof actions;
   analytics: typeof analytics;
+  assets: typeof assets;
   compliance: typeof compliance;
   compliancePack: typeof compliancePack;
   compliancePackData: typeof compliancePackData;
@@ -79,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   issues: typeof issues;
   jobs: typeof jobs;
   jurisdiction: typeof jurisdiction;
+  "lib/assistant": typeof lib_assistant;
   "lib/buildInspectionPdf": typeof lib_buildInspectionPdf;
   "lib/currency": typeof lib_currency;
   "lib/gates": typeof lib_gates;
